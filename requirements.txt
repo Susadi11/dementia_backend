@@ -1,0 +1,73 @@
+# Dementia Detection from Conversational AI
+# Requirements for Python 3.9+
+
+# ============================================================================
+# Core Data Processing Libraries
+# ============================================================================
+pandas>=2.0.0              # Data manipulation and analysis
+numpy>=1.24.0              # Numerical computing
+scipy>=1.10.0              # Scientific computing
+
+# ============================================================================
+# Natural Language Processing
+# ============================================================================
+nltk>=3.8.0                # Natural Language Toolkit
+spacy>=3.7.0               # Advanced NLP library
+transformers>=4.30.0       # Hugging Face transformers for NLP
+textstat>=0.7.0            # Text statistics and readability metrics
+sentence-transformers>=2.2.0  # Sentence embeddings for semantic analysis
+
+# ============================================================================
+# Audio Processing
+# ============================================================================
+librosa>=0.10.0            # Audio analysis library
+soundfile>=0.12.0          # Audio file I/O
+pyAudioAnalysis>=0.3.14    # Audio feature extraction
+pydub>=0.25.0              # Audio manipulation
+webrtcvad>=2.0.10          # Voice activity detection
+
+# ============================================================================
+# Machine Learning
+# ============================================================================
+scikit-learn>=1.3.0        # Machine learning algorithms
+xgboost>=2.0.0             # Gradient boosting
+lightgbm>=4.0.0            # Light gradient boosting
+imbalanced-learn>=0.11.0   # Handling imbalanced datasets
+joblib>=1.3.0              # Model serialization
+
+# ============================================================================
+# Deep Learning (Optional)
+# ============================================================================
+torch>=2.0.0               # PyTorch for deep learning models
+torchaudio>=2.0.0          # Audio processing with PyTorch
+
+# ============================================================================
+# API Framework
+# ============================================================================
+fastapi>=0.100.0           # Modern API framework
+uvicorn[standard]>=0.20.0  # ASGI server
+python-multipart>=0.0.5    # For file uploads
+pydantic>=2.0.0            # Data validation
+
+# ============================================================================
+# Utilities
+# ============================================================================
+python-dotenv>=1.0.0       # Environment variable management
+loguru>=0.7.0              # Advanced logging
+tqdm>=4.60.0               # Progress bars
+python-docx>=1.0.0         # Word document processing
+openpyxl>=3.1.0            # Excel file reading
+
+# ============================================================================
+# Data Visualization (Optional)
+# ============================================================================
+matplotlib>=3.7.0          # Plotting library
+seaborn>=0.12.0            # Statistical visualization
+
+# ============================================================================
+# Development & Testing (Optional)
+# ============================================================================
+pytest>=7.4.0              # Testing framework
+pytest-cov>=4.1.0          # Coverage reporting
+black>=23.0.0              # Code formatting
+flake8>=6.0.0              # Linting
