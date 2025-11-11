@@ -1,0 +1,106 @@
+{
+  "version": "1.0",
+  "description": "Sample dataset for dementia detection testing",
+  "samples": [
+    {
+      "id": "sample_001",
+      "label": "control",
+      "age": 45,
+      "gender": "F",
+      "audio_file": "audio/sample_001.wav",
+      "transcript_file": "text/sample_001.txt",
+      "features": {
+        "semantic_incoherence": 0.15,
+        "repeated_questions": 0,
+        "self_correction": 2,
+        "low_confidence_answers": 0.1,
+        "hesitation_pauses": 3,
+        "vocal_tremors": 0.05,
+        "emotion_slip": 0.2,
+        "slowed_speech": 0.08,
+        "evening_errors": 0,
+        "in_session_decline": 0.0
+      }
+    },
+    {
+      "id": "sample_002",
+      "label": "dementia_risk",
+      "age": 72,
+      "gender": "M",
+      "audio_file": "audio/sample_002.wav",
+      "transcript_file": "text/sample_002.txt",
+      "features": {
+        "semantic_incoherence": 0.65,
+        "repeated_questions": 4,
+        "self_correction": 1,
+        "low_confidence_answers": 0.45,
+        "hesitation_pauses": 12,
+        "vocal_tremors": 0.35,
+        "emotion_slip": 0.55,
+        "slowed_speech": 0.48,
+        "evening_errors": 2,
+        "in_session_decline": 0.6
+      }
+    },
+    {
+      "id": "sample_003",
+      "label": "control",
+      "age": 68,
+      "gender": "F",
+      "audio_file": "audio/sample_003.wav",
+      "transcript_file": "text/sample_003.txt",
+      "features": {
+        "semantic_incoherence": 0.12,
+        "repeated_questions": 0,
+        "self_correction": 3,
+        "low_confidence_answers": 0.08,
+        "hesitation_pauses": 2,
+        "vocal_tremors": 0.04,
+        "emotion_slip": 0.15,
+        "slowed_speech": 0.1,
+        "evening_errors": 0,
+        "in_session_decline": 0.05
+      }
+    },
+    {
+      "id": "sample_004",
+      "label": "dementia_risk",
+      "age": 76,
+      "gender": "M",
+      "audio_file": "audio/sample_004.wav",
+      "transcript_file": "text/sample_004.txt",
+      "features": {
+        "semantic_incoherence": 0.58,
+        "repeated_questions": 3,
+        "self_correction": 0,
+        "low_confidence_answers": 0.52,
+        "hesitation_pauses": 14,
+        "vocal_tremors": 0.42,
+        "emotion_slip": 0.62,
+        "slowed_speech": 0.55,
+        "evening_errors": 3,
+        "in_session_decline": 0.7
+      }
+    },
+    {
+      "id": "sample_005",
+      "label": "control",
+      "age": 55,
+      "gender": "M",
+      "audio_file": "audio/sample_005.wav",
+      "transcript_file": "text/sample_005.txt",
+      "features": {
+        "semantic_incoherence": 0.1,
+        "repeated_questions": 0,
+        "self_correction": 4,
+        "low_confidence_answers": 0.05,
+        "hesitation_pauses": 1,
+        "vocal_tremors": 0.02,
+        "emotion_slip": 0.1,
+        "slowed_speech": 0.06,
+        "evening_errors": 0,
+        "in_session_decline": 0.0
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+Sample Dementia Risk Interview - High Risk Participant
+
+This is a transcript of an interview with a participant showing signs of cognitive decline. The person shows some incoherence, repetition, hesitation, and reduced speech clarity.
+
+Interviewer: Good afternoon. How are you feeling today?
+Participant: I'm... uh... feeling okay, I think. Not sure really. Feeling, uh... okay.
+
+Interviewer: Can you tell me about your morning routine?
+Participant: Well, I... uh... I wake up. That's what you do in the morning, you know. I think I have... coffee? Yes, coffee. But sometimes I forget... forget where I put things. Do you know what I mean?
+
+Interviewer: What do you typically have for breakfast?
+Participant: Breakfast. Um, I don't remember exactly. Toast maybe? Or was it... or was it... um... what was the question again?
+
+Interviewer: What do you have for breakfast?
+Participant: Oh, right. Breakfast. Um, toast, I think. Or eggs. My wife... she... she makes things. I'm not sure what though. Sometimes I forget to eat.
+
+Interviewer: Do you exercise regularly?
+Participant: Exercise? I... uh... I used to. Or do I? I'm not... not really sure anymore. My legs feel slow. Very slow. Everything is... slower.
+
+Interviewer: How long have you been feeling this way?
+Participant: How long? Um... I don't know. A while? Months maybe? Or longer? Time is... it's confusing. It all seems... the same somehow. Everything just... it blurs together, you know?
+
+Note: This participant shows:
+- Frequent hesitations and filled pauses ("uh", "um")
+- Incoherent or off-topic responses
+- Difficulty retrieving specific information
+- Repetition of questions back to interviewer
+- Low confidence in answers
+- Slowed speech pattern
+- Difficulty with temporal awareness
+- Signs of fatigue and mental decline during session
