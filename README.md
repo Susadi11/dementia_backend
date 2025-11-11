@@ -1,27 +1,4 @@
-# Dementia Detection System - Backend
 
-A comprehensive machine learning system for detecting dementia risk through analysis of conversational speech patterns. The system analyzes both text transcripts and voice recordings to extract 10 key clinical parameters.
-
-## 🎯 Overview
-
-This system uses conversational AI to detect dementia risk by analyzing:
-- **Text-based features** (7 parameters): Semantic incoherence, repeated questions, self-correction, low-confidence answers, hesitation pauses, emotion/slips, evening errors
-- **Voice-based features** (3 parameters): Vocal tremors, slowed speech, in-session decline
-
-### The 10 Detection Parameters
-
-| Parameter | Source | Description |
-|-----------|--------|-------------|
-| 1. Semantic Incoherence | Text | Illogical or off-topic utterances |
-| 2. Repeated Questions | Text | Asking same question multiple times |
-| 3. Self-Correction | Text | Instances of correcting oneself |
-| 4. Low-Confidence Answers | Text | Hesitant or unsure responses |
-| 5. Hesitation Pauses | Text | Filled pauses (um, uh, er, etc.) |
-| 6. Vocal Tremors | Voice | Amplitude modulation at ~5 Hz |
-| 7. Emotion + Slip | Text | Inappropriate emotional expressions |
-| 8. Slowed Speech | Voice | Reduced speech rate |
-| 9. Evening Errors | Text/Metadata | Time-dependent cognitive decline |
-| 10. In-Session Decline | Voice | Progressive fatigue during session |
 
 ## 📁 Project Structure
 
