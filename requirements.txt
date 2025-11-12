@@ -8,8 +8,23 @@ numpy==1.24.3
 scikit-learn==1.3.2
 pandas==2.1.3
 
-# Logging
+# Audio processing
+librosa==0.10.0
+soundfile==0.12.1
+scipy==1.11.4
+
+# Speech Recognition & Whisper
+openai==1.3.0
+openai-whisper==20231117
+
+# Noise reduction
+noisereduce==3.0.1
+
+# File upload handling
 python-multipart==0.0.6
+
+# Database (SQLite for dev, extendable to PostgreSQL)
+sqlalchemy==2.0.23
 
 # Testing
 requests==2.31.0

@@ -2,26 +2,21 @@
 FastAPI Application for Dementia Detection
 
 REST API for dementia risk detection using conversational AI analysis.
-
-Endpoints:
-- POST /api/analyze - Analyze text and audio from chat
-- POST /api/session - Analyze complete chat session
-- GET /api/health - Health check
-- GET /api/features - List all features
-- POST /api/predict - Make prediction from extracted features
-
-Author: Research Team
 """
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import logging
+import tempfile
+import os
 
 from src.features.conversational_ai.feature_extractor import FeatureExtractor
 from src.models.conversational_ai.model_utils import DementiaPredictor
+from src.preprocessing.voice_processor import get_voice_processor
+from src.preprocessing.audio_models import get_db_manager
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -52,7 +47,7 @@ predictor = DementiaPredictor()
 
 # Pydantic models for API
 class AudioData(BaseModel):
-    """Audio analysis data from voice input."""
+    """Audio analysis data."""
     pause_frequency: float = Field(default=0.0, ge=0, le=1, description="Frequency of pauses (0-1)")
     tremor_intensity: float = Field(default=0.0, ge=0, le=1, description="Vocal tremor intensity (0-1)")
     emotion_intensity: float = Field(default=0.0, ge=0, le=1, description="Emotional tone intensity (0-1)")
@@ -61,7 +56,7 @@ class AudioData(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    """Single chat message from user."""
+    """Single chat message."""
     text: str = Field(..., description="Message text content")
     message_type: str = Field(default="text", description="Type: 'text' or 'voice'")
     audio_data: Optional[AudioData] = Field(None, description="Audio data if voice message")
@@ -69,13 +64,13 @@ class ChatMessage(BaseModel):
 
 
 class AnalysisRequest(BaseModel):
-    """Request model for message analysis."""
+    """Message analysis request."""
     text: str = Field(..., description="User message text")
     audio_data: Optional[AudioData] = Field(None, description="Audio features from voice")
 
 
 class SessionAnalysisRequest(BaseModel):
-    """Request model for session analysis."""
+    """Session analysis request."""
     session_id: str = Field(..., description="Unique session identifier")
     user_id: str = Field(..., description="User identifier")
     messages: List[ChatMessage] = Field(..., description="List of chat messages")
@@ -104,6 +99,37 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     components: Dict[str, str]
+
+
+class AudioUploadResponse(BaseModel):
+    """Response for audio upload and processing."""
+    success: bool
+    message: str
+    session_id: str
+    user_id: str
+    transcript: str
+    confidence: float
+    duration: float
+    language: str
+    audio_path: Optional[str] = None
+    transcript_path: Optional[str] = None
+    error: Optional[str] = None
+
+
+class AudioAnalysisResponse(BaseModel):
+    """Response for audio analysis results."""
+    session_id: str
+    user_id: str
+    transcript: str
+    confidence: float
+    duration: float
+    language: str
+    features: Dict[str, float]
+    risk_score: float
+    risk_level: str
+    risk_description: str
+    recommendations: List[str]
+    timestamp: datetime
 
 
 # Helper functions
@@ -384,6 +410,216 @@ async def predict_dementia(features: Dict[str, float]):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Prediction failed: {str(e)}"
+        )
+
+
+# ===== VOICE/AUDIO PROCESSING ENDPOINTS (Requirement 1.1) =====
+
+@app.post("/api/upload-audio", response_model=AudioUploadResponse, tags=["Voice Processing"])
+async def upload_audio(
+    file: UploadFile = File(...),
+    user_id: str = "default_user",
+    session_id: str = "default_session",
+    language: str = "en"
+):
+    """Upload and process audio file with Whisper ASR transcription."""
+    try:
+        if not file.filename:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No file selected"
+            )
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_path = tmp_file.name
+
+        logger.info(f"Processing audio upload: {file.filename} for user {user_id}")
+
+        voice_processor = get_voice_processor(model_size="base")
+        result = voice_processor.process_audio_file(
+            file_path=tmp_path,
+            user_id=user_id,
+            session_id=session_id,
+            language=language
+        )
+
+        os.unlink(tmp_path)
+
+        if not result['success']:
+            return AudioUploadResponse(
+                success=False,
+                message="Audio processing failed",
+                session_id=session_id,
+                user_id=user_id,
+                transcript="",
+                confidence=0.0,
+                duration=0.0,
+                language=language,
+                error=result['error']
+            )
+
+        db_manager = get_db_manager()
+        audio_record = db_manager.save_audio_record(
+            user_id=user_id,
+            session_id=session_id,
+            original_filename=file.filename,
+            audio_path=result['audio_path'],
+            transcript=result['transcript'],
+            transcript_path=result['transcript_path'],
+            duration=result['duration'],
+            language=result['language'],
+            confidence=result['confidence'],
+            audio_format=Path(file.filename).suffix.lstrip('.'),
+            audio_size_bytes=len(content)
+        )
+
+        logger.info(f"Audio processed and saved. Transcript: {result['transcript'][:100]}...")
+
+        return AudioUploadResponse(
+            success=True,
+            message="Audio uploaded and transcribed successfully",
+            session_id=session_id,
+            user_id=user_id,
+            transcript=result['transcript'],
+            confidence=result['confidence'],
+            duration=result['duration'],
+            language=result['language'],
+            audio_path=result['audio_path'],
+            transcript_path=result['transcript_path']
+        )
+
+    except Exception as e:
+        logger.error(f"Audio upload failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Audio processing failed: {str(e)}"
+        )
+
+
+@app.post("/api/analyze-audio", response_model=AudioAnalysisResponse, tags=["Voice Processing"])
+async def analyze_audio(
+    file: UploadFile = File(...),
+    user_id: str = "default_user",
+    session_id: str = "default_session",
+    language: str = "en"
+):
+    """Upload, transcribe, and analyze audio for dementia indicators (complete pipeline)."""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_path = tmp_file.name
+
+        logger.info(f"Analyzing audio: {file.filename} for user {user_id}")
+
+        voice_processor = get_voice_processor(model_size="base")
+        voice_result = voice_processor.process_audio_file(
+            file_path=tmp_path,
+            user_id=user_id,
+            session_id=session_id,
+            language=language
+        )
+
+        os.unlink(tmp_path)
+
+        if not voice_result['success']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Audio processing failed: {voice_result['error']}"
+            )
+
+        transcript = voice_result['transcript']
+        features = feature_extractor.extract_features_normalized(
+            transcript_text=transcript,
+            audio_path=voice_result['audio_path']
+        )
+
+        prediction, risk_score, contributions = predictor.predict(features)
+        risk_level, risk_description = calculate_risk_level(risk_score)
+
+        recommendations = []
+        if risk_level == "high":
+            recommendations.append("⚠️ High dementia risk detected")
+            if features.get('semantic_incoherence', 0) > 0.4:
+                recommendations.append("- Semantic incoherence detected in speech")
+            if features.get('repeated_questions', 0) > 0.3:
+                recommendations.append("- Repetitive questioning observed")
+        elif risk_level == "moderate":
+            recommendations.append("⚠️ Moderate dementia risk indicators found")
+            recommendations.append("- Recommend cognitive assessment")
+        else:
+            recommendations.append("✓ Low risk profile detected")
+
+        db_manager = get_db_manager()
+        audio_record = db_manager.get_session_audio(user_id, session_id)
+
+        if audio_record:
+            db_manager.save_voice_analysis(
+                audio_record_id=audio_record.id,
+                user_id=user_id,
+                session_id=session_id,
+                features=features,
+                risk_score=risk_score,
+                risk_level=risk_level,
+                risk_description=risk_description
+            )
+
+        logger.info(f"Audio analysis complete. Risk level: {risk_level}")
+
+        return AudioAnalysisResponse(
+            session_id=session_id,
+            user_id=user_id,
+            transcript=transcript,
+            confidence=voice_result['confidence'],
+            duration=voice_result['duration'],
+            language=voice_result['language'],
+            features=features,
+            risk_score=round(risk_score, 3),
+            risk_level=risk_level,
+            risk_description=risk_description,
+            recommendations=recommendations,
+            timestamp=datetime.now()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Audio analysis failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Audio analysis failed: {str(e)}"
+        )
+
+
+@app.get("/api/audio/{session_id}", response_model=Dict[str, Any], tags=["Voice Processing"])
+async def get_audio_data(user_id: str, session_id: str):
+    """Retrieve stored audio metadata and transcript for a session."""
+    try:
+        db_manager = get_db_manager()
+        audio_record = db_manager.get_session_audio(user_id, session_id)
+
+        if not audio_record:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Audio record not found"
+            )
+
+        logger.info(f"Retrieved audio data for session {session_id}")
+
+        return {
+            'audio_record': audio_record.to_dict(),
+            'message': 'Audio data retrieved successfully'
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve audio data: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve audio data: {str(e)}"
         )
 
 
