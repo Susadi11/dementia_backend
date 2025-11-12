@@ -2,8 +2,6 @@
 Logging Configuration Module
 
 Sets up logging for the dementia detection backend.
-
-Author: Research Team
 """
 
 import logging
@@ -30,23 +28,19 @@ def setup_logger(
     """
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, level))
-    
-    # Console handler
+
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(getattr(logging, level))
-    
-    # Formatter
+
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     console_handler.setFormatter(formatter)
-    
-    # Add console handler
+
     if not logger.handlers:
         logger.addHandler(console_handler)
-    
-    # File handler if specified
+
     if log_file:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)

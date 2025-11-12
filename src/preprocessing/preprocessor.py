@@ -2,8 +2,6 @@
 Data Preprocessing Module
 
 Handles cleaning, validation, and feature selection for conversational data.
-
-Author: Research Team
 """
 
 import re
@@ -18,40 +16,24 @@ class TextCleaner:
     def clean_text(text: str) -> str:
         """
         Clean text by removing noise and normalizing.
-        
+
         Args:
             text: Raw text input
-            
+
         Returns:
             Cleaned text
         """
-        # Convert to lowercase
         text = text.lower()
-        
-        # Remove extra whitespace
         text = re.sub(r'\s+', ' ', text).strip()
-        
-        # Remove special characters except punctuation
         text = re.sub(r'[^a-z0-9\s\.\?\!,;:\'\"]', '', text)
-        
         return text
     
     @staticmethod
     def remove_filler_words(text: str) -> str:
-        """
-        Remove common filler words.
-        
-        Args:
-            text: Input text
-            
-        Returns:
-            Text with filler words removed
-        """
+        """Remove common filler words from text."""
         fillers = ['um', 'uh', 'like', 'you know', 'i mean', 'basically']
-        
         for filler in fillers:
             text = re.sub(rf'\b{filler}\b', '', text, flags=re.IGNORECASE)
-        
         return re.sub(r'\s+', ' ', text).strip()
 
 

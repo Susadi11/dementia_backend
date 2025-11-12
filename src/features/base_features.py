@@ -3,8 +3,6 @@ Base Feature Extractor Class
 
 This module provides the base class for all feature extractors,
 defining the common interface and utility methods.
-
-Author: Research Team
 """
 
 from abc import ABC, abstractmethod

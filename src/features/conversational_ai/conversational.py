@@ -1,19 +1,9 @@
 """
 Conversational AI Feature Analyzer
 
-Analyzes text and voice for the 10 dementia indicator parameters:
-1. Semantic incoherence
-2. Repeated questions
-3. Self-correction
-4. Low-confidence answer
-5. Hesitation pauses
-6. Vocal tremors
-7. Emotion + slip
-8. Slowed speech
-9. Evening errors
-10. In-session decline
-
-Author: Research Team
+Analyzes text and voice to extract dementia indicator parameters including
+semantic incoherence, repeated questions, self-correction, confidence markers,
+and acoustic characteristics.
 """
 
 import re
@@ -74,39 +64,23 @@ class DementiaIndicatorAnalyzer(BaseFeatureExtractor):
     
     def _extract_text_features(self, text: str) -> Dict[str, float]:
         """Extract features from text analysis."""
-        features = {}
-        
-        # 1. Semantic incoherence - measure logical flow coherence
-        features['semantic_incoherence'] = self._calculate_semantic_incoherence(text)
-        
-        # 2. Repeated questions - count repeated question patterns
-        features['repeated_questions'] = self._count_repeated_questions(text)
-        
-        # 3. Self-correction - count self-corrections in speech
-        features['self_correction'] = self._count_self_corrections(text)
-        
-        # 4. Low-confidence answer - detect uncertainty indicators
-        features['low_confidence_answer'] = self._detect_low_confidence(text)
-        
+        features = {
+            'semantic_incoherence': self._calculate_semantic_incoherence(text),
+            'repeated_questions': self._count_repeated_questions(text),
+            'self_correction': self._count_self_corrections(text),
+            'low_confidence_answer': self._detect_low_confidence(text),
+        }
         return features
-    
+
     def _extract_audio_features(self, audio_features: Dict) -> Dict[str, float]:
         """Extract features from audio analysis."""
-        features = {}
-        
-        # 5. Hesitation pauses - extracted from audio timing data
-        features['hesitation_pauses'] = audio_features.get('pause_frequency', 0.0)
-        
-        # 6. Vocal tremors - extracted from audio analysis
-        features['vocal_tremors'] = audio_features.get('tremor_intensity', 0.0)
-        
-        # 7. Emotion + slip - emotional tone + verbal slips
-        features['emotion_slip'] = audio_features.get('emotion_intensity', 0.0) * \
-                                   audio_features.get('speech_error_rate', 0.0)
-        
-        # 8. Slowed speech - speech rate analysis
-        features['slowed_speech'] = self._analyze_speech_rate(audio_features)
-        
+        features = {
+            'hesitation_pauses': audio_features.get('pause_frequency', 0.0),
+            'vocal_tremors': audio_features.get('tremor_intensity', 0.0),
+            'emotion_slip': audio_features.get('emotion_intensity', 0.0) * \
+                           audio_features.get('speech_error_rate', 0.0),
+            'slowed_speech': self._analyze_speech_rate(audio_features),
+        }
         return features
     
     def _calculate_semantic_incoherence(self, text: str) -> float:

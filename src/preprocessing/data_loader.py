@@ -33,9 +33,7 @@ class SampleDataLoader:
                     data = json.load(f)
                     raw_samples = data.get('samples', [])
 
-                    # Resolve relative paths
                     for sample in raw_samples:
-                        # Convert relative paths to absolute
                         if 'transcript_file' in sample:
                             transcript_file = sample['transcript_file']
                             full_path = self.data_root / transcript_file
@@ -122,7 +120,7 @@ class DatasetManager:
         loader = self.real_loader if self.use_real_data and self.real_loader else self.sample_loader
         stats = loader.get_sample_statistics()
 
-        print("\n📊 Dataset Information:")
+        print("\nDataset Information:")
         print(f"   Type: {'Real' if self.use_real_data else 'Sample'}")
         print(f"   Total Samples: {stats['total_samples']}")
         print(f"   Control Cases: {stats['control_count']}")

@@ -1,10 +1,7 @@
 """
 Data Validator Module
 
-Validates extracted features and chat data.
-Ensures data quality before analysis.
-
-Author: Research Team
+Validates extracted features and chat data to ensure quality before analysis.
 """
 
 from typing import Dict, List, Tuple, Optional
@@ -39,8 +36,7 @@ class FeatureValidator:
             Tuple of (is_valid, error_messages)
         """
         errors = []
-        
-        # Check all required features are present
+
         for feature in FeatureValidator.REQUIRED_FEATURES:
             if feature not in features:
                 errors.append(f"Missing feature: {feature}")

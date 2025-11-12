@@ -1,7 +1,7 @@
 """
 Helper Functions and Utilities
 
-Author: Research Team
+Provides utility functions for dementia risk assessment and report generation.
 """
 
 from typing import Dict, List, Tuple
@@ -108,8 +108,7 @@ def generate_report(features: Dict, risk_score: float) -> Dict:
         Report dictionary
     """
     risk_level, risk_description = dementia_risk_level(risk_score)
-    
-    # Identify key indicators
+
     high_indicators = [
         (feature, value) for feature, value in features.items()
         if value > 0.6

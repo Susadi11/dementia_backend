@@ -11,8 +11,6 @@ Then access:
     - API docs: http://localhost:8000/docs
     - Health: http://localhost:8000/health
     - Predictions: http://localhost:8000/predict
-
-Author: Research Team
 """
 
 import uvicorn

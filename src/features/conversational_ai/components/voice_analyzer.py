@@ -1,18 +1,8 @@
 """
 Voice Analyzer Component
 
-Analyzes voice recordings to extract features such as:
-- Hesitation pauses
-- Vocal tremors
-- Speech rate (slowed speech detection)
-- Emotion detection
-- Vocal characteristics
-
-The voice-based dementia detection parameters:
-3. Vocal tremors - amplitude modulation at ~5 Hz
-6. Slowed speech - reduced spectral flux and lower speech rate
-10. In-session decline - progressive fatigue during session
-Plus hesitation pauses from audio analysis
+Analyzes voice recordings to extract dementia-related acoustic features
+including vocal tremors, slowed speech, and in-session decline indicators.
 """
 
 import numpy as np

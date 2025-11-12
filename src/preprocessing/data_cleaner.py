@@ -1,10 +1,7 @@
 """
 Data Cleaner Module
 
-Handles text and audio data cleaning and normalization.
-Used in the conversational AI component for preprocessing chat messages.
-
-Author: Research Team
+Handles text and audio data cleaning and normalization for preprocessing chat messages.
 """
 
 import re
@@ -18,60 +15,40 @@ class TextCleaner:
     def clean_text(text: str) -> str:
         """
         Clean text by removing noise and normalizing.
-        
+
         Args:
             text: Raw text input from user
-            
+
         Returns:
             Cleaned text ready for analysis
         """
-        # Convert to lowercase
         text = text.lower()
-        
-        # Remove extra whitespace
         text = re.sub(r'\s+', ' ', text).strip()
-        
-        # Remove special characters except punctuation
         text = re.sub(r'[^a-z0-9\s\.\?\!,;:\'\"]', '', text)
-        
         return text
     
     @staticmethod
     def remove_filler_words(text: str) -> str:
         """
-        Remove common filler words from speech.
-        
-        Common fillers: um, uh, like, you know, I mean, basically
-        
+        Remove common filler words (um, uh, like, you know, etc.) from speech.
+
         Args:
             text: Input text
-            
+
         Returns:
             Text with filler words removed
         """
         fillers = ['um', 'uh', 'like', 'you know', 'i mean', 'basically']
-        
         for filler in fillers:
             text = re.sub(rf'\b{filler}\b', '', text, flags=re.IGNORECASE)
-        
         return re.sub(r'\s+', ' ', text).strip()
     
     @staticmethod
     def normalize_punctuation(text: str) -> str:
-        """
-        Normalize punctuation marks.
-        
-        Args:
-            text: Input text
-            
-        Returns:
-            Text with normalized punctuation
-        """
-        # Replace multiple punctuation with single
-        text = re.sub(r'\.{2,}', '.', text)  # ... → .
-        text = re.sub(r'\?{2,}', '?', text)  # ??? → ?
-        text = re.sub(r'!{2,}', '!', text)   # !!! → !
-        
+        """Normalize multiple punctuation marks to single marks."""
+        text = re.sub(r'\.{2,}', '.', text)
+        text = re.sub(r'\?{2,}', '?', text)
+        text = re.sub(r'!{2,}', '!', text)
         return text
     
     @staticmethod

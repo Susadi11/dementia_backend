@@ -3,9 +3,6 @@ Configuration Module for Dementia Detection System
 
 This module handles all configuration settings for the dementia detection system,
 including paths, feature extraction parameters, and system settings.
-
-Author: Research Team
-Date: 2025-11-11
 """
 
 import os

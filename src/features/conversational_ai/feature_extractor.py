@@ -1,20 +1,8 @@
 """
 Feature Extractor
 
-Main module for extracting and combining features from both
-voice and text analysis for dementia detection.
-
-The 10 parameters extracted are:
-1. Semantic incoherence - illogical or off-topic speech
-2. Repeated questions - asking same question multiple times
-3. Self-correction - instances of self-correcting
-4. Low-confidence answers - hesitant or unsure responses
-5. Hesitation pauses - filled pauses (um, uh, er)
-6. Vocal tremors - amplitude modulation in voice
-7. Emotion + slip - inappropriate emotional expressions
-8. Slowed speech - reduced speech rate
-9. Evening errors - time-dependent cognitive decline
-10. In-session decline - progressive fatigue during session
+Main module for extracting and combining features from both voice and text analysis for dementia detection.
+Extracts 10 dementia indicator parameters from conversational data.
 """
 
 from typing import Dict, Optional, Tuple
@@ -66,7 +54,6 @@ class FeatureExtractor:
         """
         features = {}
 
-        # Load transcript if path provided instead of text
         transcript = transcript_text
         if transcript is None and transcript_path:
             try:
@@ -76,12 +63,10 @@ class FeatureExtractor:
                 print(f"Error reading transcript: {e}")
                 transcript = None
 
-        # Extract text-based features
         if transcript:
             text_features = self.text_processor.process(transcript)
             features.update(text_features)
         else:
-            # Default values if no transcript
             features['semantic_incoherence'] = 0.0
             features['repeated_questions'] = 0.0
             features['self_correction'] = 0.0
@@ -90,12 +75,10 @@ class FeatureExtractor:
             features['emotion_slip'] = 0.0
             features['evening_errors'] = 0.0
 
-        # Extract voice-based features
         if audio_path and Path(audio_path).exists():
             voice_features = self.voice_analyzer.analyze(audio_path=audio_path)
             features.update(voice_features)
         else:
-            # Default values if no audio
             features['vocal_tremors'] = 0.0
             features['slowed_speech'] = 0.0
             features['in_session_decline'] = 0.0
@@ -125,16 +108,12 @@ class FeatureExtractor:
             audio_path=audio_path
         )
 
-        # Normalize count-based features to 0-1
-        # repeated_questions: normalize count to 0-1 (assume max 10 questions)
         if features.get('repeated_questions', 0) > 0:
             features['repeated_questions'] = min(1.0, features['repeated_questions'] / 10.0)
 
-        # self_correction: normalize count to 0-1 (assume max 10 corrections)
         if features.get('self_correction', 0) > 0:
             features['self_correction'] = min(1.0, features['self_correction'] / 10.0)
 
-        # hesitation_pauses: normalize count to 0-1 (assume max 20 pauses)
         if features.get('hesitation_pauses', 0) > 0:
             features['hesitation_pauses'] = min(1.0, features['hesitation_pauses'] / 20.0)
 
@@ -157,7 +136,6 @@ class FeatureExtractor:
         report += "DEMENTIA DETECTION FEATURE REPORT\n"
         report += "="*60 + "\n\n"
 
-        # Text-based features
         report += "TEXT-BASED FEATURES:\n"
         report += f"  • Semantic Incoherence:    {features.get('semantic_incoherence', 0.0):.3f}\n"
         report += f"  • Repeated Questions:      {features.get('repeated_questions', 0.0):.3f}\n"
@@ -167,7 +145,6 @@ class FeatureExtractor:
         report += f"  • Emotion + Slip:          {features.get('emotion_slip', 0.0):.3f}\n"
         report += f"  • Evening Errors:          {features.get('evening_errors', 0.0):.3f}\n"
 
-        # Voice-based features
         report += "\nVOICE-BASED FEATURES:\n"
         report += f"  • Vocal Tremors:           {features.get('vocal_tremors', 0.0):.3f}\n"
         report += f"  • Slowed Speech:           {features.get('slowed_speech', 0.0):.3f}\n"

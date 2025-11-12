@@ -2,8 +2,6 @@
 Chat Message Parser
 
 Parses text and audio input from mobile chat interface.
-
-Author: Research Team
 """
 
 from typing import Dict, List, Optional
@@ -76,8 +74,7 @@ class ChatParser:
             start_time=session_data.get('start_time', datetime.now()),
             end_time=session_data.get('end_time')
         )
-        
-        # Parse all messages in session
+
         messages_data = session_data.get('messages', [])
         for msg_data in messages_data:
             message = ChatParser.parse_message(msg_data)

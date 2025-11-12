@@ -2,8 +2,6 @@
 Feature Selector Module
 
 Handles feature selection and importance ranking for dementia indicators.
-
-Author: Research Team
 """
 
 from typing import Dict, List, Tuple
@@ -13,10 +11,9 @@ import numpy as np
 class FeatureSelector:
     """Select and rank important dementia indicator features."""
     
-    # Feature weights based on clinical relevance for dementia detection
     FEATURE_WEIGHTS = {
-        'semantic_incoherence': 0.12,      # High importance
-        'repeated_questions': 0.12,         # High importance
+        'semantic_incoherence': 0.12,
+        'repeated_questions': 0.12,
         'self_correction': 0.10,
         'low_confidence_answer': 0.10,
         'hesitation_pauses': 0.10,
@@ -117,21 +114,10 @@ class FeatureSelector:
     
     @staticmethod
     def normalize_features(features: Dict) -> Dict[str, float]:
-        """
-        Normalize features to 0-1 range if not already.
-        
-        Args:
-            features: Dictionary of feature values
-            
-        Returns:
-            Normalized features
-        """
+        """Normalize features to 0-1 range if not already."""
         normalized = {}
-        
         for name, value in features.items():
-            # Ensure all values are between 0 and 1
             normalized[name] = max(0.0, min(1.0, float(value)))
-        
         return normalized
 
 
@@ -183,11 +169,10 @@ class FeatureTransformer:
         
         if std == 0:
             return features
-        
+
         normalized = {}
         for name, value in features.items():
             z_score = (value - mean) / std
-            # Map back to 0-1 range
             normalized[name] = max(0.0, min(1.0, (z_score + 3) / 6))
         
         return normalized

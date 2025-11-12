@@ -65,7 +65,6 @@ class DementiaPredictor:
         Returns:
             Tuple of (prediction, risk_score, feature_contributions)
         """
-        # Calculate weighted sum
         risk_score = 0.0
         feature_contributions = {}
 
@@ -76,10 +75,7 @@ class DementiaPredictor:
             risk_score += feature_value * weight
             feature_contributions[feature_name] = feature_value * weight
 
-        # Normalize to 0-1
         risk_score = min(1.0, risk_score)
-
-        # Threshold-based classification
         prediction = "dementia_risk" if risk_score > 0.4 else "control"
 
         return prediction, risk_score, feature_contributions

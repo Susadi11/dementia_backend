@@ -1,22 +1,8 @@
 """
 Text Processor Component
 
-Processes text transcripts to extract features such as:
-- Semantic incoherence
-- Repeated questions
-- Self-corrections
-- Low-confidence answers
-- Lexical and syntactic patterns
-
-The 10 dementia detection parameters extracted from text:
-1. Semantic incoherence - illogical or off-topic utterances
-2. Repeated questions - asking same question multiple times
-3. Self-correction - instances of correcting oneself
-4. Low-confidence answers - hesitant or unsure responses
-5. Hesitation pauses - filled pauses (uh, um, er)
-6. Emotion + slip - inappropriate emotional responses
-7. Evening errors - time-dependent cognitive decline (partial)
-8. (Vocal tremors, slowed speech, in-session decline - handled by VoiceAnalyzer)
+Processes text transcripts to extract dementia-related linguistic and semantic features
+including semantic incoherence, repeated questions, self-corrections, and confidence markers.
 """
 
 import re
@@ -52,7 +38,6 @@ class TextProcessor:
     def _clean_text(self, text: str) -> str:
         """Clean and normalize text."""
         text = text.lower()
-        # Remove special characters but keep words
         text = re.sub(r'[^\w\s\?\.\!]', '', text)
         return text
 
