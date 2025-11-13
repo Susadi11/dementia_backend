@@ -79,17 +79,15 @@ class VoiceAnalyzer:
             if len(y) == 0:
                 return 0.0
 
-            # Extract energy envelope using MFCC
             mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=1)
             energy = np.abs(mfccs[0])
 
             if len(energy) < 10:
                 return 0.0
 
-            # Analyze low-frequency modulation (tremor is typically 4-8 Hz)
             energy_diff = np.diff(energy)
             tremor_score = np.std(energy_diff) / (np.mean(np.abs(energy_diff)) + 1e-6)
-            tremor_score = min(1.0, tremor_score / 5.0)  # Normalize
+            tremor_score = min(1.0, tremor_score / 5.0)
 
             return tremor_score
 
@@ -116,14 +114,9 @@ class VoiceAnalyzer:
             if len(y) == 0:
                 return 0.0
 
-            # Extract spectral centroid to estimate pitch/voice activity
             spectral_centroid = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
-
-            # Estimate speech rate from spectral flux
             spectral_flux = np.sqrt(np.sum(np.diff(spectral_centroid) ** 2))
             spectral_flux_normalized = spectral_flux / (np.mean(spectral_centroid) + 1e-6)
-
-            # Slowed speech typically has lower spectral flux
             slowed_score = 1.0 / (1.0 + spectral_flux_normalized)
 
             return min(1.0, slowed_score)
@@ -170,16 +163,13 @@ class VoiceAnalyzer:
             if len(y) < 2:
                 return 0.0
 
-            # Split audio into first and second halves
             mid = len(y) // 2
             first_half = y[:mid]
             second_half = y[mid:]
 
-            # Analyze energy in each half
             energy_first = np.mean(np.abs(first_half))
             energy_second = np.mean(np.abs(second_half))
 
-            # Decline score: if second half has less energy, indicates fatigue
             decline_score = max(0.0, (energy_first - energy_second) / (energy_first + 1e-6))
 
             return min(1.0, decline_score)

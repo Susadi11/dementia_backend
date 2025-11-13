@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+from pathlib import Path
 import logging
 import tempfile
 import os
@@ -17,6 +18,7 @@ from src.features.conversational_ai.feature_extractor import FeatureExtractor
 from src.models.conversational_ai.model_utils import DementiaPredictor
 from src.preprocessing.voice_processor import get_voice_processor
 from src.preprocessing.audio_models import get_db_manager
+from src.routers import healthcheck, conversational_ai
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +41,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers
+app.include_router(healthcheck.router)
+app.include_router(conversational_ai.router)
 
 # Initialize components
 feature_extractor = FeatureExtractor()

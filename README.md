@@ -1,410 +1,127 @@
-
-
 ## 📁 Project Structure
 
 ```
 dementia_backend/
-├── config.py                          # Configuration management
-├── requirements.txt                   # Python dependencies
-├── run_api.py                        # FastAPI server launcher
-├── test_prediction.py                # Test script with sample data
 │
-├── data/
-│   ├── sample/                       # Sample dataset for testing
-│   │   ├── audio/                   # Sample audio files (WAV, MP3, etc.)
-│   │   ├── text/                    # Sample transcripts
-│   │   └── metadata/
-│   │       └── sample_data.json      # Sample metadata
-│   ├── real/                        # Real dataset location (to be added)
-│   └── generate_sample_audio.py     # Script to generate sample audio
+├── 📄 Root Files
+│   ├── config.py                     # App configuration settings
+│   ├── requirements.txt              # Python package dependencies
+│   ├── run_api.py                    # Start the API server
+│   └── test_prediction.py            # Test script
 │
-├── src/
-│   ├── api/
-│   │   └── app.py                  # FastAPI application
-│   │
-│   ├── features/
-│   │   ├── feature_extractor.py    # Generic feature extractor
-│   │   └── conversational_ai/       # Chatbot-integrated features
-│   │       ├── feature_extractor.py # Main extractor
-│   │       └── components/
-│   │           ├── text_processor.py    # Text analysis
-│   │           └── voice_analyzer.py    # Audio analysis
-│   │
-│   ├── models/
-│   │   ├── dementia_predictor.py   # Prediction model
-│   │   └── conversational_ai/
-│   │       └── model_utils.py      # Model utilities
-│   │
-│   ├── preprocessing/
-│   │   └── data_loader.py          # Data loading and management
-│   │
-│   └── parsers/
-│       └── __init__.py             # Data parsers
+├── 📂 data/
+│   ├── sample/                       # Sample test data
+│   │   ├── audio/                    # Sample audio files
+│   │   ├── text/                     # Sample transcript files
+│   │   └── metadata/                 # Sample metadata
+│   └── generate_sample_audio.py      # Audio generation script
 │
-└── models/                          # Saved ML models (generated)
-    └── dementia_predictor.pkl      # Trained model
+├── 📂 logs/                          # Application log files
+│
+├── 📂 models/                        # Saved trained models
+│
+├── 📂 output/                        # Generated output results
+│
+└── 📂 src/                           # Main application code
+    │
+    ├── 📂 api/
+    │   ├── __init__.py
+    │   └── app.py                    # FastAPI main application
+    │
+    ├── 📂 routers/                   # API endpoint definitions
+    │   ├── __init__.py
+    │   ├── healthcheck.py            # Health check endpoints
+    │   └── conversational_ai.py       # Chat endpoints (text/voice)
+    │
+    ├── 📂 services/                  # Business logic layer
+    │   ├── __init__.py
+    │   ├── db_service.py             # Database operations
+    │   ├── user_service.py           # User management
+    │   └── session_service.py        # Session management (coming soon)
+    │
+    ├── 📂 features/                  # Feature extraction logic
+    │   ├── __init__.py
+    │   ├── base_features.py
+    │   ├── conversational_ai/        # Chatbot features
+    │   │   ├── __init__.py
+    │   │   ├── conversational.py
+    │   │   ├── feature_extractor.py
+    │   │   └── components/
+    │   │       ├── __init__.py
+    │   │       ├── text_processor.py
+    │   │       └── voice_analyzer.py
+    │   ├── mmse/                     # MMSE test features (coming soon)
+    │   ├── games/                    # Game features (coming soon)
+    │   ├── reminders/                # Reminder features (coming soon)
+    │   └── shared_utils/             # Shared utility functions
+    │
+    ├── 📂 models/                    # ML models and training
+    │   ├── __init__.py
+    │   └── conversational_ai/        # Conversational AI models
+    │       ├── __init__.py
+    │       ├── model_trainer.py
+    │       ├── model_utils.py
+    │       └── trained_models/       # Saved model files
+    │
+    ├── 📂 preprocessing/             # Data preprocessing
+    │   ├── __init__.py
+    │   ├── preprocessor.py
+    │   ├── data_loader.py
+    │   ├── data_cleaner.py
+    │   ├── data_validator.py
+    │   ├── feature_selector.py
+    │   ├── audio_models.py
+    │   └── voice_processor.py
+    │
+    ├── 📂 parsers/                   # Data parsing utilities
+    │   ├── __init__.py
+    │   └── chat_parser.py
+    │
+    └── 📂 utils/                     # Helper functions
+        ├── __init__.py
+        ├── logger.py                 # Logging setup
+        └── helpers.py                # Utility functions
 ```
 
-## 🚀 Quick Start
+## 📚 Folder Descriptions
+
+| Folder | Purpose |
+|--------|---------|
+| **routers/** | API endpoint routes (what users call) |
+| **services/** | Business logic and database operations |
+| **features/** | Extract features from text & voice |
+| **models/** | ML models and predictions |
+| **preprocessing/** | Clean & prepare data |
+| **utils/** | Helper functions and logging |
+
+## 🚀 Getting Started
 
 ### 1. Install Dependencies
-
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Test with Sample Data
-
-```bash
-python test_prediction.py
-```
-
-This will:
-- Load 5 sample cases (3 control, 2 dementia risk)
-- Extract features from transcripts
-- Display analysis reports
-- Show how the system works
-
-### 3. Start the API Server
-
+### 2. Start the API Server
 ```bash
 python run_api.py
 ```
 
-Access the API:
+The API will be available at: `http://localhost:8000`
+
+### 3. View API Documentation
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
-- **Health Check**: http://localhost:8000/health
 
-## 📊 API Endpoints
+## 🔗 Current API Endpoints
 
-### Health & Info
-- `GET /health` - Health check
-- `GET /models` - Available models and feature info
-- `GET /` - API overview
+### Health Check
+- `GET /health` - API status
+- `GET /health/status` - Detailed system status
 
-### Feature Extraction
-- `POST /extract-features` - Extract all 10 features from text/audio
+### Chat (Conversational AI)
+- `POST /chat/text` - Send text message
+- `POST /chat/voice` - Send voice message (audio file)
+- `GET /chat/sessions/{session_id}` - Get conversation history
+- `DELETE /chat/sessions/{session_id}` - Clear conversation
 
-### Predictions
-- `POST /predict` - Predict dementia risk from transcript + audio
-- `POST /predict/text` - Predict from text only
-- `POST /predict/audio` - Predict from audio file upload
-- `POST /predict/batch` - Batch prediction for multiple patients
 
-## 💾 Using the System
-
-### With Sample Data (Current)
-
-The system comes with 5 sample cases in `/data/sample/`:
-- `sample_001.txt/wav` - Control (45F)
-- `sample_002.txt/wav` - Dementia Risk (72M)
-- `sample_003.txt/wav` - Control (68F)
-- `sample_004.txt/wav` - Dementia Risk (76M)
-- `sample_005.txt/wav` - Control (55M)
-
-### Switching to Real Data (Future)
-
-When you have real clinical data:
-
-1. **Organize your data**:
-   ```
-   data/real/
-   ├── audio/
-   │   ├── patient_001.wav
-   │   ├── patient_002.wav
-   │   └── ...
-   ├── text/
-   │   ├── patient_001.txt
-   │   ├── patient_002.txt
-   │   └── ...
-   └── metadata/
-       └── dataset.json
-   ```
-
-2. **Create metadata file** (`data/real/metadata/dataset.json`):
-   ```json
-   {
-     "version": "1.0",
-     "samples": [
-       {
-         "id": "patient_001",
-         "label": "control",
-         "age": 65,
-         "gender": "M",
-         "audio_file": "audio/patient_001.wav",
-         "transcript_file": "text/patient_001.txt"
-       }
-     ]
-   }
-   ```
-
-3. **Update code to use real data**:
-   ```python
-   dataset_manager = DatasetManager()
-   dataset_manager.switch_to_real_data()
-   # Everything else works the same!
-   ```
-
-**No code changes needed!** The system is designed to seamlessly transition from sample to real data.
-
-## 🔧 Feature Extraction Details
-
-### Text Features (TextProcessor)
-
-```python
-from src.features.conversational_ai.feature_extractor import FeatureExtractor
-
-extractor = FeatureExtractor()
-
-# Extract from transcript
-features = extractor.extract_features_normalized(
-    transcript_text="Your interview transcript here...",
-    audio_path="path/to/audio.wav"
-)
-
-# Features dict contains all 10 parameters
-print(features)  # {'semantic_incoherence': 0.15, ...}
-```
-
-### Voice Features (VoiceAnalyzer)
-
-The system analyzes:
-- **Vocal Tremors**: Detects amplitude modulation (~5 Hz)
-- **Slowed Speech**: Analyzes spectral flux and speech rate
-- **In-Session Decline**: Compares audio energy first half vs second half
-
-## 📈 Making Predictions
-
-### Text-Only Prediction
-
-```bash
-curl -X POST "http://localhost:8000/predict/text" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "transcript": "Your patient interview transcript...",
-    "patient_id": "P001",
-    "age": 72,
-    "gender": "M"
-  }'
-```
-
-### Audio File Upload
-
-```bash
-curl -X POST "http://localhost:8000/predict/audio" \
-  -F "file=@interview.wav" \
-  -F "transcript=Your transcript text..." \
-  -F "patient_id=P001"
-```
-
-### Full Prediction (Text + Audio)
-
-```bash
-curl -X POST "http://localhost:8000/predict" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "transcript": "Your interview transcript...",
-    "audio_file_path": "/path/to/audio.wav",
-    "patient_id": "P001",
-    "age": 72
-  }'
-```
-
-## 🎓 Understanding the Output
-
-### Feature Extraction Output
-
-```json
-{
-  "semantic_incoherence": 0.15,      // 0-1, higher = more incoherent
-  "repeated_questions": 0,            // count
-  "self_correction": 2,               // count
-  "low_confidence_answers": 0.1,      // 0-1, higher = less confident
-  "hesitation_pauses": 3,             // count
-  "vocal_tremors": 0.05,              // 0-1, higher = more tremor
-  "emotion_slip": 0.2,                // 0-1, higher = more inappropriate
-  "slowed_speech": 0.08,              // 0-1, higher = slower
-  "evening_errors": 0.0,              // 0-1 (requires metadata)
-  "in_session_decline": 0.0           // 0-1, higher = more decline
-}
-```
-
-### Prediction Output
-
-```json
-{
-  "patient_id": "P001",
-  "prediction": "dementia_risk",              // or "control"
-  "risk_score": 0.68,                         // 0-1 probability
-  "confidence": 0.36,                         // how far from 0.5 threshold
-  "features": {...},                          // all 10 features
-  "feature_contributions": {...},             // weighted feature importance
-  "recommendations": [                        // clinical recommendations
-    "⚠️ High dementia risk detected...",
-    "- Semantic incoherence detected...",
-    "- Repetitive questioning observed..."
-  ]
-}
-```
-
-## 📝 Configuration
-
-Edit `config.py` to customize:
-- Audio sample rate (default: 16000 Hz)
-- Feature thresholds
-- API settings
-- Model thresholds
-- Logging settings
-
-Environment variables:
-```bash
-export DATA_DIR=./data
-export OUTPUT_DIR=./output
-export MODELS_DIR=./models
-export API_PORT=8000
-export LOG_LEVEL=INFO
-```
-
-## 🔬 Testing & Validation
-
-### Run Test Script
-```bash
-python test_prediction.py
-```
-
-### Generate Sample Audio
-```bash
-python data/generate_sample_audio.py
-```
-
-### API Testing
-```bash
-# Health check
-curl http://localhost:8000/health
-
-# List available models
-curl http://localhost:8000/models
-
-# Get feature info
-curl http://localhost:8000/extract-features
-```
-
-## 📊 Dataset Statistics (Sample)
-
-| Metric | Count |
-|--------|-------|
-| Total Cases | 5 |
-| Control | 3 |
-| Dementia Risk | 2 |
-| Age Range | 45-76 years |
-| Mean Age | 63.2 years |
-| Males | 2 |
-| Females | 3 |
-
-## ⚙️ Model Architecture
-
-The system uses an ensemble approach:
-1. **Rule-based** (with sample data): Uses weighted feature scores
-2. **ML-based** (future with real data):
-   - Random Forest (100 trees)
-   - Gradient Boosting (100 iterations)
-   - Logistic Regression
-
-Ensemble voting: Average of all models
-
-## 🔄 Data Flow
-
-```
-Interview (Audio + Text)
-       ↓
-[Feature Extraction]
-  - Text Processor: extracts 7 text features
-  - Voice Analyzer: extracts 3 voice features
-       ↓
-[10 Feature Vector]
-       ↓
-[Dementia Predictor]
-  - Rule-based (sample data)
-  - ML-based (real data)
-       ↓
-[Risk Score + Classification]
-  - dementia_risk (score > 0.5)
-  - control (score ≤ 0.5)
-       ↓
-[Clinical Recommendations]
-```
-
-## 📚 Adding Real Data
-
-When you have real clinical data:
-
-1. Place audio files in `data/real/audio/`
-2. Place transcripts in `data/real/text/`
-3. Create metadata JSON file
-4. Update dataset manager to use real data
-5. All feature extraction and prediction code works unchanged
-
-**Example workflow**:
-```python
-# Load real data
-loader = DatasetManager()
-loader.load_real_dataset_metadata("data/real/metadata/dataset.json")
-loader.switch_to_real_data()
-
-# Get samples
-samples = loader.get_all_samples()
-
-# Extract features - same code as sample data!
-for sample in samples:
-    features = extractor.extract_features_normalized(
-        transcript_path=sample['transcript_path'],
-        audio_path=sample['audio_path']
-    )
-    print(f"Patient {sample['id']}: {features}")
-```
-
-## 🛠️ Troubleshooting
-
-### Missing Audio Libraries
-```bash
-pip install librosa soundfile numpy
-```
-
-### API Port Already in Use
-```bash
-python run_api.py --port 8001
-```
-
-### Feature Extraction Errors
-- Ensure audio files are readable
-- Check transcript encoding (UTF-8)
-- Verify file paths are correct
-
-## 📖 Documentation
-
-- [API Documentation](http://localhost:8000/docs) - Interactive Swagger UI
-- [Feature Details](src/features/conversational_ai/) - Component implementations
-- [Model Architecture](src/models/) - Prediction models
-
-## 👥 Contributing
-
-To add new features:
-
-1. Add extraction method to `TextProcessor` or `VoiceAnalyzer`
-2. Update `FeatureExtractor.extract_features()`
-3. Add to feature names list
-4. Update documentation
-
-## 📄 License
-
-Research use only. Do not use for clinical diagnosis without proper validation.
-
-## 📧 Contact
-
-For questions or issues, contact the research team.
-
----
-
-**Last Updated**: November 2025
-**Status**: Sample data ready, waiting for real clinical data
