@@ -28,10 +28,13 @@ dementia_backend/
     │   ├── __init__.py
     │   └── app.py                    # FastAPI main application
     │
-    ├── 📂 routers/                   # API endpoint definitions
+    ├── 📂 routes/                    # API endpoint definitions
     │   ├── __init__.py
     │   ├── healthcheck.py            # Health check endpoints
-    │   └── conversational_ai.py       # Chat endpoints (text/voice)
+    │   ├── conversational_ai.py       # Chat endpoints (text/voice)
+    │   ├── caregiver_routes.py        # Caregiver endpoints (coming soon)
+    │   ├── game_routes.py             # Game endpoints (coming soon)
+    │   └── user_routes.py             # User endpoints (coming soon)
     │
     ├── 📂 services/                  # Business logic layer
     │   ├── __init__.py
@@ -57,11 +60,21 @@ dementia_backend/
     │
     ├── 📂 models/                    # ML models and training
     │   ├── __init__.py
-    │   └── conversational_ai/        # Conversational AI models
+    │   ├── conversational_ai/        # Conversational AI models
+    │   │   ├── __init__.py
+    │   │   ├── model_trainer.py
+    │   │   ├── model_utils.py
+    │   │   └── trained_models/       # Saved model files
+    │   └── game/                     # Game-based models
     │       ├── __init__.py
-    │       ├── model_trainer.py
-    │       ├── model_utils.py
-    │       └── trained_models/       # Saved model files
+    │       ├── lstm_model/           # LSTM predictor
+    │       │   ├── lstm_trainer.py
+    │       │   ├── lstm_predictor.py
+    │       │   └── model_v1.keras
+    │       └── risk_classifier/      # Risk classification model
+    │           ├── risk_model.py
+    │           ├── scaler.pkl
+    │           └── logistic_model.pkl
     │
     ├── 📂 preprocessing/             # Data preprocessing
     │   ├── __init__.py
@@ -87,7 +100,7 @@ dementia_backend/
 
 | Folder | Purpose |
 |--------|---------|
-| **routers/** | API endpoint routes (what users call) |
+| **routes/** | API endpoint routes (what users call) |
 | **services/** | Business logic and database operations |
 | **features/** | Extract features from text & voice |
 | **models/** | ML models and predictions |

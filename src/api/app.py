@@ -18,7 +18,7 @@ from src.features.conversational_ai.feature_extractor import FeatureExtractor
 from src.models.conversational_ai.model_utils import DementiaPredictor
 from src.preprocessing.voice_processor import get_voice_processor
 from src.preprocessing.audio_models import get_db_manager
-from src.routers import healthcheck, conversational_ai
+from src.routes import healthcheck, conversational_ai
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
