@@ -161,6 +161,42 @@ class ModelConfig:
     random_state: int = 42
 
 
+@dataclass
+class NLPConfig:
+    """
+    Configuration for NLP processing and analysis.
+
+    Handles text processing, semantic analysis, and feature extraction
+    for dementia marker detection.
+
+    Attributes:
+        enabled: Enable NLP processing module
+        spacy_model: SpaCy model name (e.g., en_core_web_sm)
+        semantic_model: Transformer model for semantic analysis
+        use_sentence_transformers: Use SentenceTransformers for efficiency
+        enable_semantic: Enable semantic coherence analysis
+        enable_emotion: Enable sentiment/emotion analysis
+        enable_linguistic: Enable linguistic feature extraction
+        device: Device to use ('cpu' or 'cuda')
+        cache_models: Cache loaded models in memory
+        remove_stopwords: Remove stopwords during preprocessing
+        include_embeddings: Include embedding vectors in output (memory intensive)
+        batch_processing: Enable batch processing for multiple texts
+    """
+    enabled: bool = os.getenv("NLP_ENABLED", "True").lower() == "true"
+    spacy_model: str = os.getenv("SPACY_MODEL", "en_core_web_sm")
+    semantic_model: str = os.getenv("SEMANTIC_MODEL", "distilbert-base-uncased")
+    use_sentence_transformers: bool = os.getenv("USE_SENTENCE_TRANSFORMERS", "True").lower() == "true"
+    enable_semantic: bool = os.getenv("NLP_ENABLE_SEMANTIC", "True").lower() == "true"
+    enable_emotion: bool = os.getenv("NLP_ENABLE_EMOTION", "True").lower() == "true"
+    enable_linguistic: bool = os.getenv("NLP_ENABLE_LINGUISTIC", "True").lower() == "true"
+    device: str = os.getenv("NLP_DEVICE", "cpu")
+    cache_models: bool = os.getenv("NLP_CACHE_MODELS", "True").lower() == "true"
+    remove_stopwords: bool = os.getenv("NLP_REMOVE_STOPWORDS", "False").lower() == "true"
+    include_embeddings: bool = os.getenv("NLP_INCLUDE_EMBEDDINGS", "False").lower() == "true"
+    batch_processing: bool = os.getenv("NLP_BATCH_PROCESSING", "True").lower() == "true"
+
+
 class Config:
     """
     Main configuration class that aggregates all configuration settings.
@@ -177,6 +213,7 @@ class Config:
         self.logging = LoggingConfig()
         self.api = APIConfig()
         self.model = ModelConfig()
+        self.nlp = NLPConfig()
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -192,6 +229,7 @@ class Config:
             "logging": self.logging.__dict__,
             "api": self.api.__dict__,
             "model": self.model.__dict__,
+            "nlp": self.nlp.__dict__,
         }
 
     def validate(self) -> bool:
@@ -230,4 +268,5 @@ __all__ = [
     "LoggingConfig",
     "APIConfig",
     "ModelConfig",
+    "NLPConfig",
 ]

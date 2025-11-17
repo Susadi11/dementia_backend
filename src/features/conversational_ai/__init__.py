@@ -18,5 +18,7 @@ Features analyzed:
 """
 
 from .feature_extractor import FeatureExtractor
+from .components.voice import VoiceAnalyzer
+from .components.text import TextProcessor
 
-__all__ = ["FeatureExtractor"]
+__all__ = ["FeatureExtractor", "VoiceAnalyzer", "TextProcessor"]
