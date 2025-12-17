@@ -1,0 +1,251 @@
+{
+  "training_date": "2025-12-15T08:44:13.732017",
+  "data_file": "data\\synthetic_reminder_data.csv",
+  "data_shape": [
+    2000,
+    59
+  ],
+  "feature_groups": {
+    "text_features": [
+      "hesitation_pauses",
+      "semantic_incoherence",
+      "low_confidence_answers",
+      "repeated_questions",
+      "self_correction",
+      "response_coherence"
+    ],
+    "temporal_features": [
+      "response_time_seconds",
+      "pause_frequency",
+      "speech_rate"
+    ],
+    "cognitive_features": [
+      "cognitive_risk_score",
+      "confusion_detected",
+      "memory_issue"
+    ],
+    "context_features": [
+      "category_encoded",
+      "priority_encoded",
+      "time_of_day_encoded"
+    ]
+  },
+  "models_trained": [
+    "confusion_detection",
+    "cognitive_risk",
+    "caregiver_alert",
+    "response_classifier"
+  ],
+  "training_results": {
+    "confusion_detection": {
+      "model_path": "models\\reminder_system\\confusion_detection_model.joblib",
+      "best_score": 0.986070324072871,
+      "feature_importance": null,
+      "results": {
+        "random_forest": {
+          "model": "RandomForestClassifier(class_weight={np.int64(0): np.float64(0.8361204013377926),\n                                     np.int64(1): np.float64(1.243781094527363)},\n                       random_state=42)",
+          "score": 0.9698536864263624,
+          "classification_report": {
+            "0": {
+              "precision": 0.9256198347107438,
+              "recall": 0.9372384937238494,
+              "f1-score": 0.9313929313929314,
+              "support": 239.0
+            },
+            "1": {
+              "precision": 0.9050632911392406,
+              "recall": 0.8881987577639752,
+              "f1-score": 0.896551724137931,
+              "support": 161.0
+            },
+            "accuracy": 0.9175,
+            "macro avg": {
+              "precision": 0.9153415629249921,
+              "recall": 0.9127186257439123,
+              "f1-score": 0.9139723277654312,
+              "support": 400.0
+            },
+            "weighted avg": {
+              "precision": 0.9173458259232138,
+              "recall": 0.9175,
+              "f1-score": 0.9173693454727938,
+              "support": 400.0
+            }
+          }
+        },
+        "gradient_boosting": {
+          "model": "GradientBoostingClassifier(random_state=42)",
+          "score": 0.984030250266379,
+          "classification_report": {
+            "0": {
+              "precision": 0.9206349206349206,
+              "recall": 0.9707112970711297,
+              "f1-score": 0.945010183299389,
+              "support": 239.0
+            },
+            "1": {
+              "precision": 0.9527027027027027,
+              "recall": 0.8757763975155279,
+              "f1-score": 0.912621359223301,
+              "support": 161.0
+            },
+            "accuracy": 0.9325,
+            "macro avg": {
+              "precision": 0.9366688116688117,
+              "recall": 0.9232438472933289,
+              "f1-score": 0.928815771261345,
+              "support": 400.0
+            },
+            "weighted avg": {
+              "precision": 0.9335422029172028,
+              "recall": 0.9325,
+              "f1-score": 0.9319736816087635,
+              "support": 400.0
+            }
+          }
+        },
+        "logistic_regression": {
+          "model": "LogisticRegression(class_weight={np.int64(0): np.float64(0.8361204013377926),\n                                 np.int64(1): np.float64(1.243781094527363)},\n                   random_state=42)",
+          "score": 0.986070324072871,
+          "classification_report": {
+            "0": {
+              "precision": 0.9372384937238494,
+              "recall": 0.9372384937238494,
+              "f1-score": 0.9372384937238494,
+              "support": 239.0
+            },
+            "1": {
+              "precision": 0.906832298136646,
+              "recall": 0.906832298136646,
+              "f1-score": 0.906832298136646,
+              "support": 161.0
+            },
+            "accuracy": 0.925,
+            "macro avg": {
+              "precision": 0.9220353959302476,
+              "recall": 0.9220353959302476,
+              "f1-score": 0.9220353959302476,
+              "support": 400.0
+            },
+            "weighted avg": {
+              "precision": 0.925,
+              "recall": 0.925,
+              "f1-score": 0.925,
+              "support": 400.0
+            }
+          }
+        }
+      }
+    },
+    "cognitive_risk": {
+      "model_path": "models\\reminder_system\\cognitive_risk_model.joblib",
+      "scaler_path": "models\\reminder_system\\cognitive_risk_scaler.joblib",
+      "r2_score": 0.9488438144052761,
+      "mse": 0.0044601,
+      "feature_importance": {
+        "response_time_seconds": 0.05297988401765173,
+        "combined_risk": 0.9470201159823484
+      }
+    },
+    "caregiver_alert": {
+      "model_path": "models\\reminder_system\\caregiver_alert_model.joblib",
+      "scaler_path": "models\\reminder_system\\caregiver_alert_scaler.joblib",
+      "auc_score": 1.0,
+      "cv_scores": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "classification_report": {
+        "0": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 239.0
+        },
+        "1": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 161.0
+        },
+        "accuracy": 1.0,
+        "macro avg": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 400.0
+        },
+        "weighted avg": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 400.0
+        }
+      },
+      "feature_importance": {
+        "response_time_seconds": 0.11170248097725022,
+        "cognitive_risk_score": 0.3075276788026684,
+        "confusion_detected": 0.23915723795863764,
+        "memory_issue": 6.315981076878386e-15,
+        "combined_risk": 0.303238278580072,
+        "cognitive_severity_encoded": 0.03837432368136547
+      }
+    },
+    "response_classifier": {
+      "model_path": "models\\reminder_system\\response_classifier_model.joblib",
+      "encoder_path": "models\\reminder_system\\response_classifier_encoder.joblib",
+      "accuracy": 0.7175,
+      "classification_report": {
+        "0": {
+          "precision": 0.8205128205128205,
+          "recall": 0.8421052631578947,
+          "f1-score": 0.8311688311688312,
+          "support": 114.0
+        },
+        "1": {
+          "precision": 0.4375,
+          "recall": 0.3333333333333333,
+          "f1-score": 0.3783783783783784,
+          "support": 21.0
+        },
+        "2": {
+          "precision": 0.6440677966101694,
+          "recall": 0.6440677966101694,
+          "f1-score": 0.6440677966101694,
+          "support": 59.0
+        },
+        "3": {
+          "precision": 0.78,
+          "recall": 0.75,
+          "f1-score": 0.7647058823529411,
+          "support": 104.0
+        },
+        "4": {
+          "precision": 0.6296296296296297,
+          "recall": 0.6666666666666666,
+          "f1-score": 0.6476190476190476,
+          "support": 102.0
+        },
+        "accuracy": 0.7175,
+        "macro avg": {
+          "precision": 0.662342049350524,
+          "recall": 0.6472346119536128,
+          "f1-score": 0.6531879872258736,
+          "support": 400.0
+        },
+        "weighted avg": {
+          "precision": 0.7151704594017094,
+          "recall": 0.7175,
+          "f1-score": 0.7157143683026037,
+          "support": 400.0
+        }
+      },
+      "feature_importance": {
+        "response_time_seconds": 1.0
+      }
+    }
+  }
+}

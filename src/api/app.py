@@ -16,9 +16,10 @@ import os
 
 from src.features.conversational_ai.feature_extractor import FeatureExtractor
 from src.models.conversational_ai.model_utils import DementiaPredictor
-from src.preprocessing.voice_processor import get_voice_processor
-from src.preprocessing.audio_models import get_db_manager
-from src.routes import healthcheck, conversational_ai
+# Temporarily disable audio processing due to dependency issues
+# from src.preprocessing.voice_processor import get_voice_processor
+# from src.preprocessing.audio_models import get_db_manager
+from src.routes import healthcheck, conversational_ai, reminder_routes
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +46,7 @@ app.add_middleware(
 # Include routers
 app.include_router(healthcheck.router)
 app.include_router(conversational_ai.router)
+app.include_router(reminder_routes.router)
 
 # Initialize components
 feature_extractor = FeatureExtractor()
@@ -420,8 +422,9 @@ async def predict_dementia(features: Dict[str, float]):
 
 
 # ===== VOICE/AUDIO PROCESSING ENDPOINTS (Requirement 1.1) =====
+# Temporarily disabled due to Python 3.14 compatibility issues with librosa/numba
 
-@app.post("/api/upload-audio", response_model=AudioUploadResponse, tags=["Voice Processing"])
+# @app.post("/api/upload-audio", response_model=AudioUploadResponse, tags=["Voice Processing"])
 async def upload_audio(
     file: UploadFile = File(...),
     user_id: str = "default_user",

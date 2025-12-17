@@ -15,7 +15,7 @@ import logging
 # Import working components
 from src.features.conversational_ai.feature_extractor import FeatureExtractor
 from src.models.conversational_ai.model_utils import DementiaPredictor
-from src.routes import healthcheck, reminder_routes
+from src.routes import healthcheck, reminder_routes, websocket_routes
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +42,7 @@ app.add_middleware(
 # Include routers
 app.include_router(healthcheck.router)
 app.include_router(reminder_routes.router)
+app.include_router(websocket_routes.ws_router)
 
 # Initialize components
 try:
