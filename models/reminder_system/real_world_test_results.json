@@ -1,0 +1,460 @@
+{
+  "test_date": "2025-12-23T01:48:55.040871",
+  "total_scenarios": 8,
+  "results": [
+    {
+      "scenario": {
+        "title": "Healthy Senior - Clear Response",
+        "user_response": "Yes, I just took my blood pressure medication. Thank you for reminding me.",
+        "context": "Morning medication reminder for hypertension",
+        "expected_outcome": "No confusion, low risk, no alert needed",
+        "user_profile": "Healthy senior with good cognitive function"
+      },
+      "features": {
+        "hesitation_pauses": 0,
+        "semantic_incoherence": 0.07692307692307693,
+        "low_confidence_answers": 0,
+        "repeated_questions": 0,
+        "self_correction": 1,
+        "response_coherence": 1.0,
+        "word_finding_difficulty": 0,
+        "circumlocution": 0.0,
+        "tangentiality": 0.1,
+        "response_time_seconds": 6.9,
+        "pause_frequency": 0,
+        "speech_rate": 6.5,
+        "utterance_length": 13,
+        "pause_duration": 1.0,
+        "cognitive_risk_score": 0.5,
+        "confusion_detected": false,
+        "memory_issue": false,
+        "semantic_drift": 0.2,
+        "discourse_coherence": 0.8,
+        "lexical_diversity": 1.0,
+        "category_encoded": 4,
+        "priority_encoded": 2,
+        "time_of_day_encoded": 1,
+        "task_type_encoded": 0,
+        "dementia_severity": 0.5,
+        "pitt_dementia_markers": 0.0,
+        "narrative_coherence": 0.8,
+        "task_completion": 0.9,
+        "linguistic_complexity": 0.7980769230769231,
+        "error_patterns": 1
+      },
+      "predictions": {
+        "confusion_detection": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "cognitive_risk": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "caregiver_alert": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "response_classifier": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        }
+      },
+      "interpretation": {}
+    },
+    {
+      "scenario": {
+        "title": "Early Dementia - Mild Confusion",
+        "user_response": "Um... the pills? I think I took them... or was that yesterday? The white ones, right?",
+        "context": "Daily medication reminder",
+        "expected_outcome": "Mild confusion detected, moderate risk, consider gentle follow-up",
+        "user_profile": "Early-stage dementia, usually manages well with reminders"
+      },
+      "features": {
+        "hesitation_pauses": 2,
+        "semantic_incoherence": 0.125,
+        "low_confidence_answers": 1,
+        "repeated_questions": 3,
+        "self_correction": 1,
+        "response_coherence": 0.9375,
+        "word_finding_difficulty": 2,
+        "circumlocution": 0.0,
+        "tangentiality": 0.1,
+        "response_time_seconds": 12.8,
+        "pause_frequency": 3,
+        "speech_rate": 5.333333333333333,
+        "utterance_length": 16,
+        "pause_duration": 2.0,
+        "cognitive_risk_score": 0.5,
+        "confusion_detected": false,
+        "memory_issue": false,
+        "semantic_drift": 0.2,
+        "discourse_coherence": 0.8,
+        "lexical_diversity": 0.875,
+        "category_encoded": 4,
+        "priority_encoded": 2,
+        "time_of_day_encoded": 1,
+        "task_type_encoded": 0,
+        "dementia_severity": 0.5,
+        "pitt_dementia_markers": 0.0,
+        "narrative_coherence": 0.8,
+        "task_completion": 0.9,
+        "linguistic_complexity": 0.7421875,
+        "error_patterns": 1
+      },
+      "predictions": {
+        "confusion_detection": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "cognitive_risk": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "caregiver_alert": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "response_classifier": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        }
+      },
+      "interpretation": {}
+    },
+    {
+      "scenario": {
+        "title": "Moderate Dementia - Memory Issues",
+        "user_response": "I don't remember what you're talking about. What pills? I'm confused about this whole thing.",
+        "context": "Essential medication reminder",
+        "expected_outcome": "Clear confusion, high risk, caregiver alert recommended",
+        "user_profile": "Moderate dementia, needs more support"
+      },
+      "features": {
+        "hesitation_pauses": 1,
+        "semantic_incoherence": 0.06666666666666667,
+        "low_confidence_answers": 0,
+        "repeated_questions": 3,
+        "self_correction": 0,
+        "response_coherence": 1.0,
+        "word_finding_difficulty": 0,
+        "circumlocution": 0.0,
+        "tangentiality": 0.1,
+        "response_time_seconds": 7.5,
+        "pause_frequency": 0,
+        "speech_rate": 7.5,
+        "utterance_length": 15,
+        "pause_duration": 1.0,
+        "cognitive_risk_score": 0.5,
+        "confusion_detected": false,
+        "memory_issue": true,
+        "semantic_drift": 0.6,
+        "discourse_coherence": 0.3,
+        "lexical_diversity": 0.9333333333333333,
+        "category_encoded": 4,
+        "priority_encoded": 2,
+        "time_of_day_encoded": 1,
+        "task_type_encoded": 0,
+        "dementia_severity": 0.5,
+        "pitt_dementia_markers": 0.4,
+        "narrative_coherence": 0.4,
+        "task_completion": 0.3,
+        "linguistic_complexity": 0.825,
+        "error_patterns": 0
+      },
+      "predictions": {
+        "confusion_detection": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "cognitive_risk": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "caregiver_alert": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "response_classifier": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        }
+      },
+      "interpretation": {}
+    },
+    {
+      "scenario": {
+        "title": "Severe Dementia - High Confusion",
+        "user_response": "What? Where am I? I don't understand... help me... who are you?",
+        "context": "Simple reminder attempt",
+        "expected_outcome": "Severe confusion, very high risk, immediate caregiver alert",
+        "user_profile": "Advanced dementia, needs constant supervision"
+      },
+      "features": {
+        "hesitation_pauses": 2,
+        "semantic_incoherence": 0.08333333333333333,
+        "low_confidence_answers": 0,
+        "repeated_questions": 4,
+        "self_correction": 0,
+        "response_coherence": 1.0,
+        "word_finding_difficulty": 2,
+        "circumlocution": 0.0,
+        "tangentiality": 0.8,
+        "response_time_seconds": 10.6,
+        "pause_frequency": 2,
+        "speech_rate": 4.0,
+        "utterance_length": 12,
+        "pause_duration": 2.0,
+        "cognitive_risk_score": 0.5,
+        "confusion_detected": false,
+        "memory_issue": false,
+        "semantic_drift": 0.8,
+        "discourse_coherence": 0.3,
+        "lexical_diversity": 1.0,
+        "category_encoded": 4,
+        "priority_encoded": 2,
+        "time_of_day_encoded": 1,
+        "task_type_encoded": 0,
+        "dementia_severity": 0.5,
+        "pitt_dementia_markers": 0.9,
+        "narrative_coherence": 0.2,
+        "task_completion": 0.3,
+        "linguistic_complexity": 0.7708333333333333,
+        "error_patterns": 0
+      },
+      "predictions": {
+        "confusion_detection": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "cognitive_risk": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "caregiver_alert": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "response_classifier": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        }
+      },
+      "interpretation": {}
+    },
+    {
+      "scenario": {
+        "title": "Normal Hesitation - Not Pathological",
+        "user_response": "Oh, um... let me think. Yes, I need to take my vitamins. Give me just a moment to get them.",
+        "context": "Vitamin reminder",
+        "expected_outcome": "Normal hesitation, low risk, no alert needed",
+        "user_profile": "Healthy adult, just momentarily distracted"
+      },
+      "features": {
+        "hesitation_pauses": 1,
+        "semantic_incoherence": 0.1,
+        "low_confidence_answers": 0,
+        "repeated_questions": 0,
+        "self_correction": 0,
+        "response_coherence": 0.95,
+        "word_finding_difficulty": 1,
+        "circumlocution": 0.0,
+        "tangentiality": 0.1,
+        "response_time_seconds": 12.0,
+        "pause_frequency": 2,
+        "speech_rate": 5.0,
+        "utterance_length": 20,
+        "pause_duration": 1.5,
+        "cognitive_risk_score": 0.5,
+        "confusion_detected": false,
+        "memory_issue": false,
+        "semantic_drift": 0.2,
+        "discourse_coherence": 0.8,
+        "lexical_diversity": 0.9,
+        "category_encoded": 4,
+        "priority_encoded": 2,
+        "time_of_day_encoded": 1,
+        "task_type_encoded": 0,
+        "dementia_severity": 0.5,
+        "pitt_dementia_markers": 0.0,
+        "narrative_coherence": 0.8,
+        "task_completion": 0.9,
+        "linguistic_complexity": 0.675,
+        "error_patterns": 0
+      },
+      "predictions": {
+        "confusion_detection": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "cognitive_risk": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "caregiver_alert": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "response_classifier": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        }
+      },
+      "interpretation": {}
+    },
+    {
+      "scenario": {
+        "title": "Resistance vs Confusion",
+        "user_response": "I already told you I don't want to take those pills. They make me feel sick.",
+        "context": "Medication reminder for disliked medication",
+        "expected_outcome": "No confusion (clear resistance), low risk, document preference",
+        "user_profile": "Cognitively intact, expressing valid concerns"
+      },
+      "features": {
+        "hesitation_pauses": 0,
+        "semantic_incoherence": 0.125,
+        "low_confidence_answers": 0,
+        "repeated_questions": 0,
+        "self_correction": 0,
+        "response_coherence": 1.0,
+        "word_finding_difficulty": 0,
+        "circumlocution": 0.0,
+        "tangentiality": 0.1,
+        "response_time_seconds": 7.8,
+        "pause_frequency": 0,
+        "speech_rate": 8.0,
+        "utterance_length": 16,
+        "pause_duration": 1.0,
+        "cognitive_risk_score": 0.5,
+        "confusion_detected": false,
+        "memory_issue": false,
+        "semantic_drift": 0.2,
+        "discourse_coherence": 0.8,
+        "lexical_diversity": 0.9375,
+        "category_encoded": 4,
+        "priority_encoded": 2,
+        "time_of_day_encoded": 1,
+        "task_type_encoded": 0,
+        "dementia_severity": 0.5,
+        "pitt_dementia_markers": 0.0,
+        "narrative_coherence": 0.8,
+        "task_completion": 0.6,
+        "linguistic_complexity": 0.70703125,
+        "error_patterns": 0
+      },
+      "predictions": {
+        "confusion_detection": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "cognitive_risk": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "caregiver_alert": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "response_classifier": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        }
+      },
+      "interpretation": {}
+    },
+    {
+      "scenario": {
+        "title": "Sundowning Effect",
+        "user_response": "It's getting dark... I'm scared... what am I supposed to do? Everything is confusing...",
+        "context": "Evening medication reminder",
+        "expected_outcome": "Sundowning confusion, high risk, caregiver support needed",
+        "user_profile": "Dementia patient experiencing sundowning syndrome"
+      },
+      "features": {
+        "hesitation_pauses": 1,
+        "semantic_incoherence": 0.07142857142857142,
+        "low_confidence_answers": 0,
+        "repeated_questions": 2,
+        "self_correction": 0,
+        "response_coherence": 1.0,
+        "word_finding_difficulty": 3,
+        "circumlocution": 0.0,
+        "tangentiality": 0.6,
+        "response_time_seconds": 13.2,
+        "pause_frequency": 3,
+        "speech_rate": 4.666666666666667,
+        "utterance_length": 14,
+        "pause_duration": 2.5,
+        "cognitive_risk_score": 0.5,
+        "confusion_detected": false,
+        "memory_issue": false,
+        "semantic_drift": 0.8,
+        "discourse_coherence": 0.8,
+        "lexical_diversity": 1.0,
+        "category_encoded": 4,
+        "priority_encoded": 2,
+        "time_of_day_encoded": 1,
+        "task_type_encoded": 0,
+        "dementia_severity": 0.5,
+        "pitt_dementia_markers": 0.0,
+        "narrative_coherence": 0.8,
+        "task_completion": 0.6,
+        "linguistic_complexity": 0.8303571428571428,
+        "error_patterns": 0
+      },
+      "predictions": {
+        "confusion_detection": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "cognitive_risk": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "caregiver_alert": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "response_classifier": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        }
+      },
+      "interpretation": {}
+    },
+    {
+      "scenario": {
+        "title": "Word-Finding Difficulty",
+        "user_response": "I need to take the... the things... you know, for my... my heart thing. The round ones.",
+        "context": "Cardiac medication reminder",
+        "expected_outcome": "Word-finding issues, moderate risk, gentle assistance",
+        "user_profile": "Mild cognitive decline with language difficulties"
+      },
+      "features": {
+        "hesitation_pauses": 0,
+        "semantic_incoherence": 0.058823529411764705,
+        "low_confidence_answers": 0,
+        "repeated_questions": 0,
+        "self_correction": 1,
+        "response_coherence": 1.0,
+        "word_finding_difficulty": 5,
+        "circumlocution": 1.0,
+        "tangentiality": 0.1,
+        "response_time_seconds": 14.1,
+        "pause_frequency": 3,
+        "speech_rate": 3.4,
+        "utterance_length": 17,
+        "pause_duration": 2.5,
+        "cognitive_risk_score": 0.5,
+        "confusion_detected": false,
+        "memory_issue": false,
+        "semantic_drift": 0.2,
+        "discourse_coherence": 0.8,
+        "lexical_diversity": 0.9411764705882353,
+        "category_encoded": 4,
+        "priority_encoded": 2,
+        "time_of_day_encoded": 1,
+        "task_type_encoded": 0,
+        "dementia_severity": 0.5,
+        "pitt_dementia_markers": 0.3,
+        "narrative_coherence": 0.8,
+        "task_completion": 0.6,
+        "linguistic_complexity": 0.7610294117647058,
+        "error_patterns": 1
+      },
+      "predictions": {
+        "confusion_detection": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "cognitive_risk": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "caregiver_alert": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        },
+        "response_classifier": {
+          "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+        }
+      },
+      "interpretation": {}
+    }
+  ],
+  "models_tested": [
+    "confusion_detection",
+    "cognitive_risk",
+    "caregiver_alert",
+    "response_classifier"
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "test_date": "2025-12-23T01:48:08.476978",
+  "test_scenarios": 10,
+  "enhanced_model_results": {
+    "confusion_detection": {
+      "status": "error",
+      "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+    },
+    "cognitive_risk": {
+      "status": "error",
+      "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+    },
+    "caregiver_alert": {
+      "status": "error",
+      "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+    },
+    "response_classifier": {
+      "status": "error",
+      "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\n"
+    }
+  },
+  "baseline_comparison": {
+    "synthetic_only_performance": {
+      "confusion_detection": 0.75,
+      "cognitive_risk": 0.7,
+      "caregiver_alert": 0.73,
+      "response_classifier": 0.8
+    },
+    "note": "Baseline represents typical synthetic-only model performance"
+  },
+  "improvement_analysis": {},
+  "detailed_results": [
+    {
+      "user_response": "Yes, I'll take my medication right now",
+      "expected_confusion": false,
+      "expected_risk": 0.1,
+      "expected_alert": false,
+      "scenario": "healthy_clear"
+    },
+    {
+      "user_response": "Already took it this morning, thank you",
+      "expected_confusion": false,
+      "expected_risk": 0.1,
+      "expected_alert": false,
+      "scenario": "healthy_clear"
+    },
+    {
+      "user_response": "Um, I think I took it... or was it yesterday?",
+      "expected_confusion": true,
+      "expected_risk": 0.4,
+      "expected_alert": false,
+      "scenario": "mild_confusion"
+    },
+    {
+      "user_response": "Let me see... the blue pills? Or the white ones?",
+      "expected_confusion": true,
+      "expected_risk": 0.4,
+      "expected_alert": false,
+      "scenario": "mild_confusion"
+    },
+    {
+      "user_response": "I don't remember... what am I supposed to do?",
+      "expected_confusion": true,
+      "expected_risk": 0.7,
+      "expected_alert": true,
+      "scenario": "moderate_confusion"
+    },
+    {
+      "user_response": "Help me remember... I'm confused about this",
+      "expected_confusion": true,
+      "expected_risk": 0.7,
+      "expected_alert": true,
+      "scenario": "moderate_confusion"
+    },
+    {
+      "user_response": "What? I don't understand. Where am I?",
+      "expected_confusion": true,
+      "expected_risk": 0.9,
+      "expected_alert": true,
+      "scenario": "high_confusion"
+    },
+    {
+      "user_response": "I can't... help me... I'm lost",
+      "expected_confusion": true,
+      "expected_risk": 0.9,
+      "expected_alert": true,
+      "scenario": "high_confusion"
+    },
+    {
+      "user_response": "Just give me a minute, I'm busy right now",
+      "expected_confusion": false,
+      "expected_risk": 0.2,
+      "expected_alert": false,
+      "scenario": "delay_normal"
+    },
+    {
+      "user_response": "I think... maybe... probably I should",
+      "expected_confusion": true,
+      "expected_risk": 0.5,
+      "expected_alert": false,
+      "scenario": "uncertainty_normal"
+    }
+  ]
+}

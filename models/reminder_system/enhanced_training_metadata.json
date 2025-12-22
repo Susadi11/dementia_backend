@@ -1,0 +1,144 @@
+{
+  "training_date": "2025-12-23T01:33:35.280740",
+  "data_sources": [
+    "synthetic",
+    "pitt_corpus"
+  ],
+  "synthetic_samples": 2000,
+  "pitt_samples": 1289,
+  "total_samples": 3289,
+  "feature_groups": {
+    "text_features": [
+      "hesitation_pauses",
+      "semantic_incoherence",
+      "low_confidence_answers",
+      "repeated_questions",
+      "self_correction",
+      "response_coherence",
+      "word_finding_difficulty",
+      "circumlocution",
+      "tangentiality"
+    ],
+    "temporal_features": [
+      "response_time_seconds",
+      "pause_frequency",
+      "speech_rate",
+      "utterance_length",
+      "pause_duration"
+    ],
+    "cognitive_features": [
+      "cognitive_risk_score",
+      "confusion_detected",
+      "memory_issue",
+      "semantic_drift",
+      "discourse_coherence",
+      "lexical_diversity"
+    ],
+    "context_features": [
+      "category_encoded",
+      "priority_encoded",
+      "time_of_day_encoded",
+      "task_type_encoded",
+      "dementia_severity"
+    ],
+    "pitt_features": [
+      "pitt_dementia_markers",
+      "narrative_coherence",
+      "task_completion",
+      "linguistic_complexity",
+      "error_patterns"
+    ]
+  },
+  "models_trained": [
+    "confusion_detection",
+    "cognitive_risk",
+    "caregiver_alert",
+    "response_classifier"
+  ],
+  "training_results": {
+    "confusion_detection": {
+      "best_score": 1.0,
+      "results": {
+        "random_forest": {
+          "cv_score_mean": 1.0,
+          "cv_score_std": 0.0,
+          "test_score": 1.0
+        },
+        "gradient_boosting": {
+          "cv_score_mean": 1.0,
+          "cv_score_std": 0.0,
+          "test_score": 1.0
+        },
+        "logistic_regression": {
+          "cv_score_mean": 1.0,
+          "cv_score_std": 0.0,
+          "test_score": 1.0
+        }
+      },
+      "feature_count": 18
+    },
+    "cognitive_risk": {
+      "best_score": 1.0,
+      "results": {
+        "random_forest": {
+          "cv_score_mean": 0.9999832787416836,
+          "cv_score_std": 3.084128009977469e-05,
+          "test_score": 0.9999989224053939
+        },
+        "gradient_boosting": {
+          "cv_score_mean": 0.9999661925178656,
+          "cv_score_std": 5.513864769441346e-05,
+          "test_score": 0.9999939980847837
+        },
+        "linear_regression": {
+          "cv_score_mean": 1.0,
+          "cv_score_std": 0.0,
+          "test_score": 1.0
+        }
+      },
+      "feature_count": 18
+    },
+    "caregiver_alert": {
+      "best_score": 1.0,
+      "results": {
+        "random_forest": {
+          "cv_score_mean": 1.0,
+          "cv_score_std": 0.0,
+          "test_score": 1.0
+        },
+        "gradient_boosting": {
+          "cv_score_mean": 1.0,
+          "cv_score_std": 0.0,
+          "test_score": 1.0
+        },
+        "logistic_regression": {
+          "cv_score_mean": 1.0,
+          "cv_score_std": 0.0,
+          "test_score": 1.0
+        }
+      },
+      "feature_count": 18
+    },
+    "response_classifier": {
+      "best_score": 1.0,
+      "results": {
+        "random_forest": {
+          "cv_score_mean": 0.9988593155893536,
+          "cv_score_std": 0.0015209125475285246,
+          "test_score": 0.9969604863221885
+        },
+        "gradient_boosting": {
+          "cv_score_mean": 1.0,
+          "cv_score_std": 0.0,
+          "test_score": 1.0
+        },
+        "logistic_regression": {
+          "cv_score_mean": 0.9981003023066212,
+          "cv_score_std": 0.0024036345633334185,
+          "test_score": 0.9984802431610942
+        }
+      },
+      "feature_count": 18
+    }
+  }
+}
