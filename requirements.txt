@@ -26,6 +26,10 @@ python-multipart==0.0.6
 # Database (SQLite for dev, extendable to PostgreSQL)
 sqlalchemy==2.0.23
 
+# MongoDB
+motor>=3.3.0  # Async MongoDB driver
+pymongo>=4.5.0  # MongoDB driver
+
 # Testing
 requests==2.31.0
 pytest==7.4.3
