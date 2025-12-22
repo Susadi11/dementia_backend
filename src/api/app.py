@@ -13,6 +13,10 @@ from pathlib import Path
 import logging
 import tempfile
 import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 from src.features.conversational_ai.feature_extractor import FeatureExtractor
 from src.models.conversational_ai.model_utils import DementiaPredictor
@@ -20,6 +24,7 @@ from src.models.conversational_ai.model_utils import DementiaPredictor
 # from src.preprocessing.voice_processor import get_voice_processor
 # from src.preprocessing.audio_models import get_db_manager
 from src.routes import healthcheck, conversational_ai, reminder_routes
+from src.database import Database
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -178,13 +183,13 @@ def extract_and_analyze(text: str, audio_path: Optional[str] = None) -> Dict[str
         # Create recommendations
         recommendations = []
         if risk_level == "high":
-            recommendations.append("⚠️ High dementia risk detected")
+            recommendations.append("High dementia risk detected")
             if features.get('semantic_incoherence', 0) > 0.4:
                 recommendations.append("- Semantic incoherence detected in speech")
             if features.get('repeated_questions', 0) > 0.3:
                 recommendations.append("- Repetitive questioning observed")
         elif risk_level == "moderate":
-            recommendations.append("⚠️ Moderate dementia risk indicators found")
+            recommendations.append("Moderate dementia risk indicators found")
             recommendations.append("- Recommend cognitive assessment")
         else:
             recommendations.append("✓ Low risk profile detected")
@@ -635,14 +640,35 @@ async def get_audio_data(user_id: str, session_id: str):
 @app.on_event("startup")
 async def startup_event():
     """Initialize on startup."""
+    logger.info("=" * 80)
     logger.info("Dementia Detection API starting up...")
+    logger.info("=" * 80)
+
+    # Connect to MongoDB
+    try:
+        await Database.connect_to_database()
+        # Create indexes for better performance
+        await Database.create_indexes()
+    except Exception as e:
+        logger.error(f"Failed to connect to MongoDB: {e}")
+        logger.warning("API will continue without database connection")
+
+    logger.info("=" * 80)
     logger.info("API ready to serve requests")
+    logger.info("=" * 80)
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown."""
+    logger.info("=" * 80)
     logger.info("Dementia Detection API shutting down...")
+    logger.info("=" * 80)
+
+    # Close MongoDB connection
+    await Database.close_database_connection()
+
+    logger.info("Shutdown complete")
 
 
 if __name__ == "__main__":
