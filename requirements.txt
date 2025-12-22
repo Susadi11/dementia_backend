@@ -35,10 +35,12 @@ spacy==3.7.2
 nltk==3.8.1
 transformers==4.35.0
 torch==2.1.0
+peft>=0.7.0  # For LoRA adapter loading
 sentence-transformers==2.2.2
 textblob==0.17.1
 langdetect==1.0.9
 gensim==4.3.2
+accelerate>=0.25.0  # For model loading optimization
 
 # Development
 python-dotenv==1.0.0
