@@ -18,7 +18,7 @@ scipy>=1.11.4
 openai-whisper
 
 # Noise reduction
-noisereduce==3.0.1
+noisereduce==3.0.3
 
 # File upload handling
 python-multipart==0.0.6
