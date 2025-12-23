@@ -1,5 +1,5 @@
 """
-Chatbot Service using Fine-tuned LLaMA 3.2 1B with LoRA
+Chatbot Service using Fine-tuned LLaMA 3.2 3B with LoRA
 Trained on DailyDialog dataset for dementia care conversations
 """
 
@@ -17,14 +17,14 @@ logger = logging.getLogger(__name__)
 
 class DementiaChatbot:
     """
-    Chatbot for dementia care using fine-tuned LLaMA 3.2 1B model.
+    Chatbot for dementia care using fine-tuned LLaMA 3.2 3B model.
     Model is trained on DailyDialog dataset for natural conversations.
     """
 
     def __init__(
         self,
-        base_model_name: str = "meta-llama/Llama-3.2-1B-Instruct",
-        lora_adapter_path: str = "models/llama_32_1B_dailydialog_final",
+        base_model_name: str = "meta-llama/Llama-3.2-3B-Instruct",
+        lora_adapter_path: str = "susadi/llama-3.2-3b-dementia-care",
         device: str = None
     ):
         """
@@ -32,11 +32,11 @@ class DementiaChatbot:
 
         Args:
             base_model_name: HuggingFace model ID for base LLaMA model
-            lora_adapter_path: Path to your trained LoRA adapter
+            lora_adapter_path: HuggingFace model ID or local path to LoRA adapter
             device: Device to run on ('cuda', 'mps', or 'cpu')
         """
         self.base_model_name = base_model_name
-        self.lora_adapter_path = Path(lora_adapter_path)
+        self.lora_adapter_path = lora_adapter_path
 
         # Auto-detect device
         if device is None:
@@ -80,16 +80,17 @@ class DementiaChatbot:
                 trust_remote_code=True
             )
 
-            # Load and apply LoRA adapter
-            if self.lora_adapter_path.exists():
-                logger.info(f"Loading LoRA adapter from: {self.lora_adapter_path}")
+            # Load and apply LoRA adapter (from HuggingFace or local path)
+            logger.info(f"Loading LoRA adapter from: {self.lora_adapter_path}")
+            try:
                 self.model = PeftModel.from_pretrained(
                     base_model,
-                    str(self.lora_adapter_path)
+                    self.lora_adapter_path  # Works with both HuggingFace ID and local path
                 )
                 logger.info("LoRA adapter loaded successfully")
-            else:
-                logger.warning(f"LoRA adapter not found at {self.lora_adapter_path}, using base model")
+            except Exception as adapter_error:
+                logger.warning(f"Could not load LoRA adapter: {adapter_error}")
+                logger.warning("Using base model without LoRA")
                 self.model = base_model
 
             # Move to device if not using device_map
@@ -197,7 +198,7 @@ class DementiaChatbot:
                 "timestamp": datetime.now().isoformat(),
                 "metadata": {
                     "model": self.base_model_name,
-                    "adapter": str(self.lora_adapter_path.name),
+                    "adapter": self.lora_adapter_path,
                     "temperature": temperature,
                     "max_tokens": max_tokens,
                     "conversation_length": len(self.conversation_history[session_id])
