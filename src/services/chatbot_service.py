@@ -1,5 +1,5 @@
 """
-Chatbot Service using Fine-tuned LLaMA 3.2 1B with LoRA
+Chatbot Service using Fine-tuned LLaMA 3.2 3B with LoRA
 Trained on DailyDialog dataset for dementia care conversations
 """
 
@@ -17,14 +17,14 @@ logger = logging.getLogger(__name__)
 
 class DementiaChatbot:
     """
-    Chatbot for dementia care using fine-tuned LLaMA 3.2 1B model.
+    Chatbot for dementia care using fine-tuned LLaMA 3.2 3B model.
     Model is trained on DailyDialog dataset for natural conversations.
     """
 
     def __init__(
         self,
-        base_model_name: str = "meta-llama/Llama-3.2-1B-Instruct",
-        lora_adapter_path: str = "models/llama_32_1B_dailydialog_final",
+        base_model_name: str = "meta-llama/Llama-3.2-3B-Instruct",
+        lora_adapter_path: str = "models/llama_32_3b_model",
         device: str = None
     ):
         """
