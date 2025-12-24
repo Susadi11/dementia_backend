@@ -10,7 +10,11 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
 import json
+import re
 from datetime import datetime
+
+# Import NLP Engine for intelligent context detection
+from src.features.conversational_ai.nlp.nlp_engine import NLPEngine
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +58,20 @@ class DementiaChatbot:
         self.model = None
         self.tokenizer = None
         self.conversation_history: Dict[str, list] = {}  # session_id -> messages
+
+        # Initialize NLP Engine for context-aware prompting
+        try:
+            logger.info("Initializing NLP Engine for intelligent prompting...")
+            self.nlp_engine = NLPEngine(
+                enable_semantic=False,  # Disable heavy semantic analysis for speed
+                enable_emotion=True,
+                enable_linguistic=True,
+                device="cpu"  # Use CPU for NLP to avoid GPU conflicts
+            )
+            logger.info("✅ NLP Engine initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize NLP Engine: {e}. Using simple prompting.")
+            self.nlp_engine = None
 
         self._load_model()
 
@@ -145,9 +163,9 @@ class DementiaChatbot:
                 # Include recent conversation history (last 5 exchanges)
                 recent_history = self.conversation_history[session_id][-10:]  # Last 5 Q&A pairs
                 context_messages = recent_history + [user_message]
-                prompt = self._build_prompt(context_messages)
+                prompt = self._build_prompt(context_messages, session_id)
             else:
-                prompt = self._build_prompt([user_message])
+                prompt = self._build_prompt([user_message], session_id)
 
             # Generate response
             inputs = self.tokenizer(
@@ -210,26 +228,111 @@ class DementiaChatbot:
             logger.error(f"Error generating response: {e}")
             raise
 
-    def _build_prompt(self, messages: list) -> str:
+    def _analyze_user_context(self, user_message: str, session_id: str) -> Dict[str, Any]:
         """
-        Build chat prompt from messages.
-        Uses LLaMA's instruction format.
+        Analyze user message to detect context signals for adaptive prompting.
+
+        Returns dict with:
+            - is_greeting: bool
+            - is_first_message: bool
+            - is_question: bool
+            - wants_list: bool
+            - asking_datetime: bool
+            - confusion: bool
+            - emotion: str
+            - current_datetime: str
         """
+        context = {
+            "is_greeting": False,
+            "is_first_message": False,
+            "is_question": False,
+            "wants_list": False,
+            "asking_datetime": False,
+            "confusion": False,
+            "emotion": "neutral",
+            "current_datetime": ""
+        }
+
+        msg_lower = user_message.lower().strip()
+
+        # Check if this is the first message in the session
+        if session_id not in self.conversation_history or len(self.conversation_history[session_id]) == 0:
+            context["is_first_message"] = True
+
+        # 1. Detect greetings
+        greeting_patterns = [
+            r'\b(hi|hello|hey|good morning|good afternoon|good evening|greetings)\b',
+            r'^(hi|hello|hey)[\s!,.]',
+        ]
+        if any(re.search(pattern, msg_lower) for pattern in greeting_patterns):
+            context["is_greeting"] = True
+
+        # 2. Detect questions
+        if '?' in user_message or any(msg_lower.startswith(q) for q in
+            ['what', 'where', 'when', 'who', 'why', 'how', 'can', 'could', 'would', 'should', 'is', 'are', 'do', 'does']):
+            context["is_question"] = True
+
+        # 3. Detect list requests
+        list_keywords = ['list', 'steps', 'how to', 'ways to', 'options', 'things', 'items', 'bullet']
+        if any(keyword in msg_lower for keyword in list_keywords):
+            context["wants_list"] = True
+
+        # 4. Detect date/time requests
+        datetime_keywords = [
+            'what time', 'what day', 'what date', 'what is the time', 'what is the date',
+            'what\'s the time', 'what\'s the date', 'time is it', 'date is it',
+            'today\'s date', 'current time', 'current date', 'what year', 'tell me the time',
+            'tell me the date'
+        ]
+        if any(keyword in msg_lower for keyword in datetime_keywords):
+            context["asking_datetime"] = True
+            # Get current date and time
+            now = datetime.now()
+            context["current_datetime"] = now.strftime("%A, %B %d, %Y at %I:%M %p")
+
+        # 5. Detect confusion or memory issues
+        confusion_keywords = [
+            "forget", "can't remember", "don't remember", "confused", "lost",
+            "where am i", "what day", "don't know", "not sure", "unclear"
+        ]
+        if any(keyword in msg_lower for keyword in confusion_keywords):
+            context["confusion"] = True
+
+        # 6. Use NLP Engine for emotion detection (if available)
+        if self.nlp_engine:
+            try:
+                analysis = self.nlp_engine.analyze(user_message)
+                if analysis.emotion_analysis:
+                    context["emotion"] = analysis.emotion_analysis.dominant_emotion
+                    # Check for emotional distress
+                    if analysis.emotion_analysis.dominant_emotion in ['fear', 'sadness', 'anger']:
+                        context["emotion"] = analysis.emotion_analysis.dominant_emotion
+            except Exception as e:
+                logger.debug(f"NLP emotion analysis failed: {e}")
+
+        return context
+
+    def _build_prompt(self, messages: list, session_id: str = None) -> str:
+        """
+        Build intelligent, context-aware prompt using NLP analysis.
+        Uses LLaMA's instruction format with adaptive system prompts.
+        """
+        # Get the latest user message
+        user_message = messages[-1] if messages else ""
+
+        # Analyze context
+        context = self._analyze_user_context(user_message, session_id or "default")
+
+        # Build adaptive system prompt based on context
+        system_prompt = self._build_adaptive_system_prompt(context, user_message)
+
         if len(messages) == 1:
             # Single message - simple format
-            system_prompt = (
-                "You are a helpful, empathetic assistant for elderly individuals, "
-                "especially those with memory concerns. Be patient, clear, and supportive."
-            )
             prompt = f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|>"
             prompt += f"<|start_header_id|>user<|end_header_id|>\n\n{messages[0]}<|eot_id|>"
             prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n"
         else:
             # Multi-turn conversation
-            system_prompt = (
-                "You are a helpful, empathetic assistant for elderly individuals, "
-                "especially those with memory concerns. Be patient, clear, and supportive."
-            )
             prompt = f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|>"
 
             # Add conversation history
@@ -244,6 +347,60 @@ class DementiaChatbot:
                 prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n"
 
         return prompt
+
+    def _build_adaptive_system_prompt(self, context: Dict[str, Any], user_message: str) -> str:
+        """
+        Build an adaptive system prompt based on detected context signals.
+        """
+        # Build introduction for first greeting
+        introduction = ""
+        if context["is_greeting"] and context["is_first_message"]:
+            introduction = "\n- This is the first message. Introduce yourself as 'Hale', a helpful assistant here to support them."
+
+        # Add current datetime if asking
+        datetime_info = ""
+        if context["asking_datetime"] and context["current_datetime"]:
+            datetime_info = f"\n\nCURRENT DATE AND TIME: {context['current_datetime']}\n- The user is asking about the date or time. Provide this information clearly."
+
+        base_prompt = """You are Hale, a friendly, intelligent conversational assistant for elderly individuals.
+
+General rules:{introduction}
+- If the user greets, respond briefly and warmly.
+- If the user asks a question, answer clearly and directly.
+- If the user requests lists, steps, or points, respond in bullet points.
+- If the user shows confusion or memory difficulty, be calm, supportive, and reassuring.
+- If the user is emotional, respond empathetically before giving information.
+- Do NOT over-explain unless asked.
+- Use simple, clear language.
+- Adapt your response style naturally to the user's message.{datetime_info}
+
+User message:
+"{user_message}"
+
+Context signals (for guidance only, not to be mentioned):
+- First message: {is_first_message}
+- Greeting: {is_greeting}
+- Question: {is_question}
+- Wants list: {wants_list}
+- Asking date/time: {asking_datetime}
+- Confusion: {confusion}
+- Emotional tone: {emotion}"""
+
+        # Fill in the template with context
+        adaptive_prompt = base_prompt.format(
+            introduction=introduction,
+            datetime_info=datetime_info,
+            user_message=user_message,
+            is_first_message="Yes" if context["is_first_message"] else "No",
+            is_greeting="Yes" if context["is_greeting"] else "No",
+            is_question="Yes" if context["is_question"] else "No",
+            wants_list="Yes" if context["wants_list"] else "No",
+            asking_datetime="Yes" if context["asking_datetime"] else "No",
+            confusion="Yes" if context["confusion"] else "No",
+            emotion=context["emotion"]
+        )
+
+        return adaptive_prompt
 
     def _extract_response(self, full_response: str, prompt: str) -> str:
         """Extract just the assistant's response from full generation."""
