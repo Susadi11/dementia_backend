@@ -3,6 +3,7 @@ Chatbot Service using Fine-tuned LLaMA 3.2 3B with LoRA
 Trained on DailyDialog dataset for dementia care conversations
 """
 
+import os
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
@@ -27,20 +28,21 @@ class DementiaChatbot:
 
     def __init__(
         self,
-        base_model_name: str = "meta-llama/Llama-3.2-3B-Instruct",
-        lora_adapter_path: str = "susadi/llama-3.2-3b-dementia-care",
+        base_model_name: str = None,
+        lora_adapter_path: str = None,
         device: str = None
     ):
         """
         Initialize the chatbot with fine-tuned model.
 
         Args:
-            base_model_name: HuggingFace model ID for base LLaMA model
-            lora_adapter_path: HuggingFace model ID or local path to LoRA adapter
+            base_model_name: HuggingFace model ID for base LLaMA model (defaults to env var LLAMA_BASE_MODEL)
+            lora_adapter_path: HuggingFace model ID or local path to LoRA adapter (defaults to env var LLAMA_LORA_ADAPTER)
             device: Device to run on ('cuda', 'mps', or 'cpu')
         """
-        self.base_model_name = base_model_name
-        self.lora_adapter_path = lora_adapter_path
+        # Read from environment variables with fallbacks
+        self.base_model_name = base_model_name or os.getenv("LLAMA_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
+        self.lora_adapter_path = lora_adapter_path or os.getenv("LLAMA_LORA_ADAPTER", "susadi/llama-3.2-3b-dementia-care")
 
         # Auto-detect device
         if device is None:
@@ -78,12 +80,18 @@ class DementiaChatbot:
     def _load_model(self):
         """Load base model and apply LoRA adapter."""
         try:
+            # Get HuggingFace token from environment (for private models)
+            hf_token = os.getenv("LLAMA_HF_TOKEN")
+            if hf_token:
+                logger.info("HuggingFace token found - can access private models")
+
             logger.info(f"Loading base model: {self.base_model_name}")
 
             # Load tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.base_model_name,
-                trust_remote_code=True
+                trust_remote_code=True,
+                token=hf_token  # Use token for private models
             )
 
             # Ensure pad token is set
@@ -95,7 +103,8 @@ class DementiaChatbot:
                 self.base_model_name,
                 torch_dtype=torch.float16 if self.device in ["cuda", "mps"] else torch.float32,
                 device_map="auto" if self.device == "cuda" else None,
-                trust_remote_code=True
+                trust_remote_code=True,
+                token=hf_token  # Use token for private models
             )
 
             # Load and apply LoRA adapter (from HuggingFace or local path)
@@ -103,7 +112,8 @@ class DementiaChatbot:
             try:
                 self.model = PeftModel.from_pretrained(
                     base_model,
-                    self.lora_adapter_path  # Works with both HuggingFace ID and local path
+                    self.lora_adapter_path,  # Works with both HuggingFace ID and local path
+                    token=hf_token  # Use token for private models
                 )
                 logger.info("LoRA adapter loaded successfully")
             except Exception as adapter_error:
