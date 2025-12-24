@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 import logging
 
 from src.services.chatbot_service import get_chatbot
+from src.services.whisper_service import get_whisper_service
 
 router = APIRouter(prefix="/chat", tags=["conversational_ai"])
 logger = logging.getLogger(__name__)
@@ -90,52 +91,74 @@ class VoiceResponse(BaseModel):
 
 @router.post("/voice", response_model=VoiceResponse,
              summary="Voice Chat",
-             description="Send an audio message to the chatbot (requires Whisper for transcription)")
+             description="Send an audio message to the chatbot with Whisper transcription")
 async def process_voice_chat(
     user_id: str = Form(..., description="User identifier"),
-    file: UploadFile = File(..., description="Audio file (wav, mp3, m4a)"),
+    file: UploadFile = File(..., description="Audio file (wav, mp3, m4a, ogg, flac)"),
     session_id: Optional[str] = Form(None, description="Optional session ID"),
     max_tokens: int = Form(150, description="Maximum tokens to generate"),
-    temperature: float = Form(0.7, description="Sampling temperature")
+    temperature: float = Form(0.7, description="Sampling temperature"),
+    language: Optional[str] = Form(None, description="Language code (e.g., 'en', 'es') or auto-detect")
 ) -> VoiceResponse:
     """
-    Process voice chat message.
+    Process voice chat message with local Whisper transcription.
 
-    **Steps:**
-    1. Transcribe audio to text using Whisper
-    2. Send transcribed text to chatbot
-    3. Return chatbot response with transcription
+    **Flow:**
+    1. **Whisper** → Transcribe audio to text (local, free)
+    2. **spaCy + NLP** → Analyze intent, emotion, greeting detection
+    3. **Prompt Builder** → Build context-aware prompts
+    4. **LLaMA** → Generate empathetic text response
+    5. **Return** → Text response with transcription
 
     **Supported formats:** wav, mp3, m4a, ogg, flac
 
-    **Note:** Requires OpenAI Whisper or similar transcription service
+    **Example:**
+    ```bash
+    curl -X POST "http://localhost:8000/chat/voice" \\
+      -F "user_id=user_001" \\
+      -F "file=@my_audio.wav"
+    ```
     """
     try:
         if not file.filename:
             raise HTTPException(status_code=400, detail="No file provided")
 
-        # TODO: Add Whisper transcription here
-        # For now, return placeholder response
-        # You can integrate Whisper API or local model later
+        logger.info(f"Processing voice message from user: {user_id}")
 
         import tempfile
         import os
+        from pathlib import Path
+
+        # Get file extension for proper handling
+        file_ext = Path(file.filename).suffix or ".wav"
 
         # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_audio:
             content = await file.read()
             temp_audio.write(content)
             temp_audio_path = temp_audio.name
 
         try:
-            # Placeholder transcription (replace with actual Whisper)
-            transcribed_text = "[Voice transcription - Whisper integration needed]"
+            # Step 1: Transcribe audio using local Whisper
+            logger.info("📝 Step 1: Transcribing audio with Whisper...")
+            whisper_service = get_whisper_service()
+            transcription_result = whisper_service.transcribe(
+                audio_path=temp_audio_path,
+                language=language
+            )
 
-            # For demo, you can manually pass text
-            # In production, integrate Whisper here:
-            # transcribed_text = whisper_transcribe(temp_audio_path)
+            transcribed_text = transcription_result["text"]
+            logger.info(f"✅ Transcription: '{transcribed_text[:100]}...'")
 
-            # Generate chatbot response
+            if not transcribed_text.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not transcribe audio. Please ensure clear speech."
+                )
+
+            # Step 2-4: NLP analysis + Prompt building + LLaMA response
+            # (This happens automatically inside the chatbot service)
+            logger.info("🧠 Step 2-4: NLP analysis → Prompt building → LLaMA generation...")
             chatbot = get_chatbot()
             result = chatbot.generate_response(
                 user_message=transcribed_text,
@@ -144,6 +167,17 @@ async def process_voice_chat(
                 max_tokens=max_tokens,
                 temperature=temperature
             )
+
+            # Add transcription info to metadata
+            if result.get("metadata"):
+                result["metadata"]["transcription"] = {
+                    "text": transcribed_text,
+                    "language": transcription_result["language"],
+                    "confidence": transcription_result["confidence"],
+                    "duration": transcription_result["duration"]
+                }
+
+            logger.info(f"✅ Response generated: '{result['response'][:50]}...'")
 
             return VoiceResponse(
                 **result,
@@ -154,7 +188,10 @@ async def process_voice_chat(
             # Clean up temp file
             if os.path.exists(temp_audio_path):
                 os.unlink(temp_audio_path)
+                logger.debug(f"Cleaned up temp file: {temp_audio_path}")
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing voice chat: {str(e)}")
         raise HTTPException(
