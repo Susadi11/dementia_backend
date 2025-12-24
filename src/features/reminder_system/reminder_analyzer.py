@@ -15,6 +15,7 @@ from src.features.conversational_ai.feature_extractor import FeatureExtractor
 from src.features.conversational_ai.nlp.nlp_engine import NLPEngine
 from src.utils.helpers import calculate_overall_risk
 from .reminder_models import InteractionType
+from .enhanced_model_loader import EnhancedModelLoader
 
 logger = logging.getLogger(__name__)
 
@@ -27,27 +28,45 @@ class PittBasedReminderAnalyzer:
     real dementia patient speech patterns to assess user responses.
     """
     
-    def __init__(self, model_path: Optional[str] = None):
+    def __init__(self, use_enhanced_models: bool = True, model_path: Optional[str] = None):
         """
         Initialize analyzer with feature extraction and NLP engines.
         
         Args:
-            model_path: Optional path to Pitt-trained model for predictions
+            use_enhanced_models: Whether to use enhanced models with Pitt Corpus integration
+            model_path: Optional path to legacy Pitt-trained model for predictions
         """
         self.feature_extractor = FeatureExtractor()
         self.nlp_engine = NLPEngine()
         self.model_path = model_path
         self.model = None
+        self.enhanced_models = None
         
-        # Load model if path provided and exists
-        if model_path and Path(model_path).exists():
+        # Load enhanced models (default and recommended)
+        if use_enhanced_models:
+            try:
+                self.enhanced_models = EnhancedModelLoader()
+                logger.info("✅ Enhanced models with Pitt Corpus integration loaded")
+                
+                # Log model info
+                model_info = self.enhanced_models.get_model_info()
+                logger.info(f"📊 Models trained on {model_info['total_samples']} samples")
+                logger.info(f"🏆 Models available: {', '.join(model_info['models_loaded'])}")
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to load enhanced models: {e}")
+                self.enhanced_models = None
+                use_enhanced_models = False
+                
+        # Fallback to legacy model if enhanced models not available
+        if not use_enhanced_models and model_path and Path(model_path).exists():
             try:
                 from src.models.conversational_ai.text_model_trainer import TextModelTrainer
                 self.model = TextModelTrainer()
                 self.model.load_model(model_path)
-                logger.info(f"Loaded Pitt-trained model from {model_path}")
+                logger.info(f"Loaded legacy Pitt-trained model from {model_path}")
             except Exception as e:
-                logger.warning(f"Could not load model from {model_path}: {e}")
+                logger.warning(f"Could not load legacy model from {model_path}: {e}")
                 self.model = None
     
     def analyze_reminder_response(
@@ -106,16 +125,53 @@ class PittBasedReminderAnalyzer:
                 user_response, features, confusion_detected, memory_issue
             )
             
-            # Get model prediction if available
+            # Get enhanced model predictions if available
             model_confidence = 0.0
-            if self.model:
+            enhanced_predictions = {}
+            
+            if self.enhanced_models:
+                try:
+                    # Convert features dict to DataFrame for model prediction
+                    import pandas as pd
+                    features_df = pd.DataFrame([features])
+                    
+                    # Get predictions from all enhanced models
+                    confusion_pred, confusion_conf = self.enhanced_models.predict_confusion_detection(features_df)
+                    risk_pred, risk_conf = self.enhanced_models.predict_cognitive_risk(features_df)
+                    caregiver_pred, caregiver_conf = self.enhanced_models.predict_caregiver_alert(features_df)
+                    response_pred, response_conf = self.enhanced_models.predict_response_classification(features_df)
+                    
+                    # Store enhanced predictions
+                    enhanced_predictions = {
+                        'confusion_detection': {'prediction': bool(confusion_pred), 'confidence': float(confusion_conf)},
+                        'cognitive_risk': {'prediction': bool(risk_pred), 'confidence': float(risk_conf)},
+                        'caregiver_alert': {'prediction': bool(caregiver_pred), 'confidence': float(caregiver_conf)},
+                        'response_classification': {'prediction': str(response_pred), 'confidence': float(response_conf)}
+                    }
+                    
+                    # Update analysis with enhanced predictions
+                    confusion_detected = bool(confusion_pred)
+                    # Use enhanced cognitive risk if confidence is high
+                    if risk_conf > 0.7:
+                        cognitive_risk = max(cognitive_risk, float(risk_pred))
+                    
+                    model_confidence = float(np.mean([confusion_conf, risk_conf, caregiver_conf, response_conf]))
+                    
+                    logger.info(f"✅ Enhanced model predictions: confusion={confusion_pred}, risk={risk_pred}, caregiver={caregiver_pred}")
+                    
+                except Exception as e:
+                    logger.warning(f"Enhanced model prediction failed: {e}")
+                    enhanced_predictions = {}
+            
+            # Fallback to legacy model if enhanced models not available
+            elif self.model:
                 try:
                     feature_values = list(features.values())
                     prediction, probabilities = self.model.predict([feature_values])
                     cognitive_risk = max(cognitive_risk, probabilities[0][1])
                     model_confidence = float(max(probabilities[0]))
                 except Exception as e:
-                    logger.warning(f"Model prediction failed: {e}")
+                    logger.warning(f"Legacy model prediction failed: {e}")
             
             # Determine recommended action
             action = self._determine_action(
@@ -139,7 +195,9 @@ class PittBasedReminderAnalyzer:
                 'caregiver_alert_needed': caregiver_alert,
                 'features': features,
                 'confidence': model_confidence,
-                'nlp_analysis': nlp_analysis
+                'nlp_analysis': nlp_analysis,
+                'enhanced_predictions': enhanced_predictions,  # New: Include enhanced model predictions
+                'model_type': 'enhanced' if self.enhanced_models else 'legacy' if self.model else 'rule_based'
             }
             
         except Exception as e:

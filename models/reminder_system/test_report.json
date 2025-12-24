@@ -1,0 +1,120 @@
+{
+  "test_summary": {
+    "total_test_cases": 8,
+    "case_types": {
+      "healthy_clear": 2,
+      "mild_confusion": 2,
+      "moderate_confusion": 2,
+      "high_confusion": 2
+    },
+    "test_timestamp": "2025-12-23T01:33:52.759871"
+  },
+  "model_performance": {
+    "confusion_detection": {
+      "status": "failed",
+      "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\nFeature names seen at fit time, yet now missing:\n- cognitive_risk_score\n- confusion_detected\n"
+    },
+    "cognitive_risk": {
+      "status": "failed",
+      "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\nFeature names seen at fit time, yet now missing:\n- cognitive_risk_score\n- confusion_detected\n"
+    },
+    "caregiver_alert": {
+      "status": "failed",
+      "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\nFeature names seen at fit time, yet now missing:\n- cognitive_risk_score\n- confusion_detected\n"
+    },
+    "response_classifier": {
+      "status": "failed",
+      "error": "The feature names should match those that were passed during fit.\nFeature names unseen at fit time:\n- category_encoded\n- dementia_severity\n- discourse_coherence\n- error_patterns\n- lexical_diversity\n- ...\nFeature names seen at fit time, yet now missing:\n- cognitive_risk_score\n- confusion_detected\n"
+    }
+  },
+  "detailed_results": [
+    {
+      "case_id": 0,
+      "user_response": "Yes, I'll take my medication now",
+      "case_type": "healthy_clear",
+      "expected": {
+        "confusion": false,
+        "risk": 0.1,
+        "alert": false
+      },
+      "predictions": {}
+    },
+    {
+      "case_id": 1,
+      "user_response": "I already took it this morning",
+      "case_type": "healthy_clear",
+      "expected": {
+        "confusion": false,
+        "risk": 0.1,
+        "alert": false
+      },
+      "predictions": {}
+    },
+    {
+      "case_id": 2,
+      "user_response": "Um, I think I took it... or was it yesterday?",
+      "case_type": "mild_confusion",
+      "expected": {
+        "confusion": true,
+        "risk": 0.4,
+        "alert": false
+      },
+      "predictions": {}
+    },
+    {
+      "case_id": 3,
+      "user_response": "Wait, what medication? The blue one?",
+      "case_type": "mild_confusion",
+      "expected": {
+        "confusion": true,
+        "risk": 0.4,
+        "alert": false
+      },
+      "predictions": {}
+    },
+    {
+      "case_id": 4,
+      "user_response": "I don't remember... maybe? What am I supposed to do?",
+      "case_type": "moderate_confusion",
+      "expected": {
+        "confusion": true,
+        "risk": 0.7,
+        "alert": true
+      },
+      "predictions": {}
+    },
+    {
+      "case_id": 5,
+      "user_response": "Um... uh... I think... or was it... help me remember",
+      "case_type": "moderate_confusion",
+      "expected": {
+        "confusion": true,
+        "risk": 0.7,
+        "alert": true
+      },
+      "predictions": {}
+    },
+    {
+      "case_id": 6,
+      "user_response": "What? I'm confused. I can't remember anything",
+      "case_type": "high_confusion",
+      "expected": {
+        "confusion": true,
+        "risk": 0.9,
+        "alert": true
+      },
+      "predictions": {}
+    },
+    {
+      "case_id": 7,
+      "user_response": "Help me... I'm lost. What am I supposed to do?",
+      "case_type": "high_confusion",
+      "expected": {
+        "confusion": true,
+        "risk": 0.9,
+        "alert": true
+      },
+      "predictions": {}
+    }
+  ]
+}
