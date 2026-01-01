@@ -23,20 +23,25 @@ from src.models.conversational_ai.model_utils import DementiaPredictor
 # Temporarily disable audio processing due to dependency issues
 # from src.preprocessing.voice_processor import get_voice_processor
 # from src.preprocessing.audio_models import get_db_manager
-from src.routes import healthcheck, conversational_ai, reminder_routes
+from src.routes import healthcheck, conversational_ai, reminder_routes_complete
 from src.database import Database
+from swagger_testing import testing_router
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('dementia_api')
 
-# Initialize FastAPI app
+# Import enhanced Swagger configuration
+from swagger_config import create_enhanced_openapi_schema, setup_swagger_ui_config
+
+# Initialize FastAPI app with enhanced configuration
 app = FastAPI(
-    title="Dementia Detection API",
-    description="API for detecting dementia risk using conversational AI analysis",
-    version="1.0.0",
+    title="Context-Aware Smart Reminder System",
+    description="Comprehensive API for dementia detection and intelligent reminder management",
+    version="2.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
 )
 
 # Add CORS middleware
@@ -51,7 +56,17 @@ app.add_middleware(
 # Include routers
 app.include_router(healthcheck.router)
 app.include_router(conversational_ai.router)
-app.include_router(reminder_routes.router)
+app.include_router(reminder_routes_complete.router)
+app.include_router(testing_router)  # Add testing endpoints for Swagger
+
+# Setup enhanced Swagger configuration
+setup_swagger_ui_config(app)
+
+# Custom OpenAPI schema
+@app.get("/openapi.json", include_in_schema=False)
+async def get_openapi():
+    """Get enhanced OpenAPI schema."""
+    return create_enhanced_openapi_schema(app)
 
 # Initialize components
 feature_extractor = FeatureExtractor()

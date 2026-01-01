@@ -111,6 +111,29 @@ class Database:
             await messages.create_index("session_id")
             await messages.create_index("timestamp")
 
+            # Reminder system indexes
+            reminders = cls.get_collection("reminders")
+            await reminders.create_index("user_id")
+            await reminders.create_index("scheduled_time")
+            await reminders.create_index("status")
+            await reminders.create_index([("user_id", 1), ("status", 1)])
+            
+            # Interaction indexes
+            interactions = cls.get_collection("reminder_interactions")
+            await interactions.create_index("user_id")
+            await interactions.create_index("reminder_id")
+            await interactions.create_index("interaction_time")
+            
+            # Behavior pattern indexes
+            patterns = cls.get_collection("user_behavior_patterns")
+            await patterns.create_index("user_id")
+            await patterns.create_index("category")
+            
+            # Caregiver alert indexes
+            alerts = cls.get_collection("caregiver_alerts")
+            await alerts.create_index("caregiver_id")
+            await alerts.create_index("created_at")
+
             logger.info("Database indexes created successfully")
 
         except Exception as e:
