@@ -1,7 +1,7 @@
 """
 FastAPI Application for Dementia Detection
 
-REST API for dementia risk detection using conversational AI analysis.
+Combines conversational AI + gamified cognitive assessment for comprehensive dementia risk detection.
 """
 
 from fastapi import FastAPI, HTTPException, status, UploadFile, File
@@ -18,6 +18,9 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# ============================================================================
+# Conversational AI Imports (Team's existing features)
+# ============================================================================
 from src.features.conversational_ai.feature_extractor import FeatureExtractor
 from src.models.conversational_ai.model_utils import DementiaPredictor
 # Temporarily disable audio processing due to dependency issues
@@ -26,6 +29,12 @@ from src.models.conversational_ai.model_utils import DementiaPredictor
 from src.routes import healthcheck, conversational_ai, reminder_routes_complete
 from src.database import Database
 from swagger_testing import testing_router
+
+# ============================================================================
+# Game Component Imports (Gamified cognitive assessment features)
+# ============================================================================
+from src.routes import game_routes
+from src.models.game.model_registry import load_all_models
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -36,9 +45,9 @@ from swagger_config import create_enhanced_openapi_schema, setup_swagger_ui_conf
 
 # Initialize FastAPI app with enhanced configuration
 app = FastAPI(
-    title="Context-Aware Smart Reminder System",
-    description="Comprehensive API for dementia detection and intelligent reminder management",
-    version="2.0.0",
+    title="Dementia Detection & Monitoring API",
+    description="Comprehensive API combining conversational AI, gamified cognitive assessment, and intelligent reminder management for dementia risk detection",
+    version="2.0.0",  # Incremented for combined system
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -54,6 +63,7 @@ app.add_middleware(
 )
 
 # Include routers
+# Existing conversational AI routes
 app.include_router(healthcheck.router)
 app.include_router(conversational_ai.router)
 app.include_router(reminder_routes_complete.router)
@@ -67,6 +77,9 @@ setup_swagger_ui_config(app)
 async def get_openapi():
     """Get enhanced OpenAPI schema."""
     return create_enhanced_openapi_schema(app)
+
+# Game component routes
+app.include_router(game_routes.router)
 
 # Initialize components
 feature_extractor = FeatureExtractor()
@@ -232,10 +245,34 @@ def extract_and_analyze(text: str, audio_path: Optional[str] = None) -> Dict[str
 async def root():
     """Root endpoint."""
     return {
-        "message": "Dementia Detection API",
-        "version": "1.0.0",
+        "message": "Dementia Detection & Monitoring API",
+        "version": "2.0.0",
         "docs": "/docs",
-        "description": "Analyze conversational patterns for dementia risk detection"
+        "features": {
+            "conversational_ai": "Analyze speech patterns for dementia indicators",
+            "gamified_assessment": "Card-matching game with cognitive risk scoring",
+            "smart_reminders": "Context-aware intelligent reminder management system"
+        },
+        "components": {
+            "conversational": [
+                "/api/analyze",
+                "/api/session",
+                "/api/predict",
+                "/api/features",
+                "/api/risk-levels"
+            ],
+            "game": [
+                "/game/session",
+                "/game/calibration",
+                "/game/history/{userId}",
+                "/game/stats/{userId}"
+            ],
+            "reminders": [
+                "/reminders",
+                "/reminders/{reminder_id}",
+                "/reminders/user/{user_id}"
+            ]
+        }
     }
 
 
@@ -656,28 +693,70 @@ async def get_audio_data(user_id: str, session_id: str):
 async def startup_event():
     """Initialize on startup."""
     logger.info("=" * 80)
-    logger.info("Dementia Detection API starting up...")
+    logger.info("Dementia Detection & Monitoring API starting up...")
     logger.info("=" * 80)
 
-    # Connect to MongoDB
+    # Connect to MongoDB (Team's existing code)
     try:
         await Database.connect_to_database()
         # Create indexes for better performance
         await Database.create_indexes()
+        logger.info("✓ MongoDB connected (conversational AI collections)")
     except Exception as e:
-        logger.error(f"Failed to connect to MongoDB: {e}")
+        logger.error(f"MongoDB connection failed: {e}")
         logger.warning("API will continue without database connection")
+    
+    # Create indexes for game collections
+    try:
+        await create_game_indexes()
+        logger.info("✓ Game component indexes created")
+    except Exception as e:
+        logger.warning(f"Game index creation warning: {e}")
+    
+    # Load game ML models (LSTM, risk classifier)
+    try:
+        load_all_models()
+        logger.info("✓ Game ML models loaded")
+    except Exception as e:
+        logger.warning(f"Game model loading warning: {e}")
 
     logger.info("=" * 80)
     logger.info("API ready to serve requests")
     logger.info("=" * 80)
 
 
+# ============================================================================
+# Helper: Create Game Component Indexes
+# ============================================================================
+async def create_game_indexes():
+    """Create indexes for game collections"""
+    try:
+        logger.info("Creating game component indexes...")
+        
+        # game_sessions indexes
+        game_sessions = Database.get_collection("game_sessions")
+        await game_sessions.create_index([("userId", 1), ("timestamp", -1)])
+        await game_sessions.create_index([("userId", 1), ("sessionId", 1)], unique=True)
+        
+        # calibrations indexes
+        calibrations = Database.get_collection("calibrations")
+        await calibrations.create_index([("userId", 1), ("calibrationDate", -1)])
+        
+        # alerts indexes
+        alerts = Database.get_collection("alerts")
+        await alerts.create_index([("userId", 1), ("timestamp", -1)])
+        
+        logger.info("✓ Game indexes created successfully")
+        
+    except Exception as e:
+        logger.warning(f"Error creating game indexes: {e}")
+
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown."""
     logger.info("=" * 80)
-    logger.info("Dementia Detection API shutting down...")
+    logger.info("Dementia Detection & Monitoring API shutting down...")
     logger.info("=" * 80)
 
     # Close MongoDB connection
