@@ -26,24 +26,21 @@ from src.models.conversational_ai.model_utils import DementiaPredictor
 # Temporarily disable audio processing due to dependency issues
 # from src.preprocessing.voice_processor import get_voice_processor
 # from src.preprocessing.audio_models import get_db_manager
-from src.routes import healthcheck, conversational_ai, reminder_routes_complete
+from src.routes import healthcheck, conversational_ai, reminder_routes
 from src.database import Database
-from swagger_testing import testing_router
 
 # ============================================================================
 # Game Component Imports (Gamified cognitive assessment features)
 # ============================================================================
-from src.routes import game_routes
-from src.models.game.model_registry import load_all_models
+# DISABLED: Missing game_schemas parsers
+# from src.routes import game_routes
+# from src.models.game.model_registry import load_all_models
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('dementia_api')
 
-# Import enhanced Swagger configuration
-from swagger_config import create_enhanced_openapi_schema, setup_swagger_ui_config
-
-# Initialize FastAPI app with enhanced configuration
+# Initialize FastAPI app
 app = FastAPI(
     title="Dementia Detection & Monitoring API",
     description="Comprehensive API combining conversational AI, gamified cognitive assessment, and intelligent reminder management for dementia risk detection",
@@ -66,20 +63,10 @@ app.add_middleware(
 # Existing conversational AI routes
 app.include_router(healthcheck.router)
 app.include_router(conversational_ai.router)
-app.include_router(reminder_routes_complete.router)
-app.include_router(testing_router)  # Add testing endpoints for Swagger
+app.include_router(reminder_routes.router)
 
-# Setup enhanced Swagger configuration
-setup_swagger_ui_config(app)
-
-# Custom OpenAPI schema
-@app.get("/openapi.json", include_in_schema=False)
-async def get_openapi():
-    """Get enhanced OpenAPI schema."""
-    return create_enhanced_openapi_schema(app)
-
-# Game component routes
-app.include_router(game_routes.router)
+# Game component routes - DISABLED (missing parsers)
+# app.include_router(game_routes.router)
 
 # Initialize components
 feature_extractor = FeatureExtractor()
@@ -705,20 +692,19 @@ async def startup_event():
     except Exception as e:
         logger.error(f"MongoDB connection failed: {e}")
         logger.warning("API will continue without database connection")
-    
-    # Create indexes for game collections
-    try:
-        await create_game_indexes()
-        logger.info("✓ Game component indexes created")
-    except Exception as e:
-        logger.warning(f"Game index creation warning: {e}")
-    
-    # Load game ML models (LSTM, risk classifier)
-    try:
-        load_all_models()
-        logger.info("✓ Game ML models loaded")
-    except Exception as e:
-        logger.warning(f"Game model loading warning: {e}")
+
+    # Game components disabled (missing parsers)
+    # try:
+    #     await create_game_indexes()
+    #     logger.info("✓ Game component indexes created")
+    # except Exception as e:
+    #     logger.warning(f"Game index creation warning: {e}")
+    #
+    # try:
+    #     load_all_models()
+    #     logger.info("✓ Game ML models loaded")
+    # except Exception as e:
+    #     logger.warning(f"Game model loading warning: {e}")
 
     logger.info("=" * 80)
     logger.info("API ready to serve requests")
@@ -726,30 +712,30 @@ async def startup_event():
 
 
 # ============================================================================
-# Helper: Create Game Component Indexes
+# Helper: Create Game Component Indexes (DISABLED)
 # ============================================================================
-async def create_game_indexes():
-    """Create indexes for game collections"""
-    try:
-        logger.info("Creating game component indexes...")
-        
-        # game_sessions indexes
-        game_sessions = Database.get_collection("game_sessions")
-        await game_sessions.create_index([("userId", 1), ("timestamp", -1)])
-        await game_sessions.create_index([("userId", 1), ("sessionId", 1)], unique=True)
-        
-        # calibrations indexes
-        calibrations = Database.get_collection("calibrations")
-        await calibrations.create_index([("userId", 1), ("calibrationDate", -1)])
-        
-        # alerts indexes
-        alerts = Database.get_collection("alerts")
-        await alerts.create_index([("userId", 1), ("timestamp", -1)])
-        
-        logger.info("✓ Game indexes created successfully")
-        
-    except Exception as e:
-        logger.warning(f"Error creating game indexes: {e}")
+# async def create_game_indexes():
+#     """Create indexes for game collections"""
+#     try:
+#         logger.info("Creating game component indexes...")
+#
+#         # game_sessions indexes
+#         game_sessions = Database.get_collection("game_sessions")
+#         await game_sessions.create_index([("userId", 1), ("timestamp", -1)])
+#         await game_sessions.create_index([("userId", 1), ("sessionId", 1)], unique=True)
+#
+#         # calibrations indexes
+#         calibrations = Database.get_collection("calibrations")
+#         await calibrations.create_index([("userId", 1), ("calibrationDate", -1)])
+#
+#         # alerts indexes
+#         alerts = Database.get_collection("alerts")
+#         await alerts.create_index([("userId", 1), ("timestamp", -1)])
+#
+#         logger.info("✓ Game indexes created successfully")
+#
+#     except Exception as e:
+#         logger.warning(f"Error creating game indexes: {e}")
 
 
 @app.on_event("shutdown")
