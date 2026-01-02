@@ -2,6 +2,7 @@
 """
 Game API Routes
 Endpoints for game session processing, calibration, and history
+Compatible with teammate's async Database class
 """
 from fastapi import APIRouter, HTTPException, status
 from datetime import datetime
@@ -19,7 +20,7 @@ from src.parsers.game_schemas import (
 )
 from src.services.game_service import process_game_session
 from src.features.game.cognitive_scoring import compute_motor_baseline
-from src.utils.database import get_db
+from src.database import Database  # Use teammate's Database class
 
 router = APIRouter(prefix="/game", tags=["Game"])
 logger = logging.getLogger(__name__)
@@ -60,8 +61,8 @@ async def submit_game_session(request: GameSessionRequest):
         if request.summary:
             summary = request.summary.dict()
         
-        # Process session
-        result = process_game_session(
+        # Process session (ASYNC)
+        result = await process_game_session(
             userId=request.userId,
             sessionId=request.sessionId,
             gameType=request.gameType,
@@ -106,12 +107,12 @@ async def calibrate_motor_baseline(request: CalibrationRequest):
     - Stored in database for future sessions
     """
     try:
-        db = get_db()
+        calibrations = Database.get_collection("calibrations")
         
         # Compute motor baseline
         motor_baseline = compute_motor_baseline(request.tapTimes)
         
-        # Store in database
+        # Store in database (ASYNC)
         calibration_doc = {
             "userId": request.userId,
             "motorBaseline": motor_baseline,
@@ -119,7 +120,7 @@ async def calibrate_motor_baseline(request: CalibrationRequest):
             "tapTimes": request.tapTimes
         }
         
-        db.calibrations.insert_one(calibration_doc)
+        await calibrations.insert_one(calibration_doc)
         
         logger.info(f"Motor baseline calibrated for user {request.userId}: {motor_baseline}s")
         
@@ -149,13 +150,10 @@ async def get_session_history(userId: str, limit: int = 20):
     - Sorted by timestamp (newest first)
     """
     try:
-        db = get_db()
+        game_sessions = Database.get_collection("game_sessions")
         
-        sessions = list(
-            db.game_sessions.find({"userId": userId})
-            .sort("timestamp", -1)
-            .limit(limit)
-        )
+        cursor = game_sessions.find({"userId": userId}).sort("timestamp", -1).limit(limit)
+        sessions = await cursor.to_list(length=limit)
         
         history_items = []
         for session in sessions:
@@ -199,12 +197,10 @@ async def get_user_stats(userId: str):
     - Most recent risk score
     """
     try:
-        db = get_db()
+        game_sessions = Database.get_collection("game_sessions")
         
-        sessions = list(
-            db.game_sessions.find({"userId": userId})
-            .sort("timestamp", -1)
-        )
+        cursor = game_sessions.find({"userId": userId}).sort("timestamp", -1)
+        sessions = await cursor.to_list(length=None)
         
         if not sessions:
             raise HTTPException(status_code=404, detail="No sessions found for this user")
@@ -245,8 +241,8 @@ async def delete_session(sessionId: str):
     Delete a game session (for testing/cleanup).
     """
     try:
-        db = get_db()
-        result = db.game_sessions.delete_one({"sessionId": sessionId})
+        game_sessions = Database.get_collection("game_sessions")
+        result = await game_sessions.delete_one({"sessionId": sessionId})
         
         if result.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Session not found")
