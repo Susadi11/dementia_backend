@@ -21,13 +21,13 @@ logger = logging.getLogger(__name__)
 
 class ReminderDatabaseService:
     """Enhanced database service for reminder system data persistence."""
-    
+
     def __init__(self):
-        self.db = Database.get_database()
-        self.reminders_collection = "reminders"
-        self.interactions_collection = "reminder_interactions"
-        self.behavior_patterns_collection = "user_behavior_patterns"
-        self.caregiver_alerts_collection = "caregiver_alerts"
+        # Get MongoDB collections directly
+        self.reminders_collection = Database.get_collection("reminders")
+        self.interactions_collection = Database.get_collection("reminder_interactions")
+        self.behavior_patterns_collection = Database.get_collection("user_behavior_patterns")
+        self.caregiver_alerts_collection = Database.get_collection("caregiver_alerts")
 
     # ===== REMINDER MANAGEMENT =====
     
@@ -59,8 +59,7 @@ class ReminderDatabaseService:
                 "completed_at": reminder.completed_at
             }
             
-            collection = Database.get_collection(self.reminders_collection)
-            result = await collection.insert_one(reminder_data)
+            result = await self.reminders_collection.insert_one(reminder_data)
             
             logger.info(f"Created reminder: {reminder.id} for user {reminder.user_id}")
             
@@ -77,8 +76,7 @@ class ReminderDatabaseService:
     async def get_reminder(self, reminder_id: str) -> Optional[Dict[str, Any]]:
         """Get reminder by ID."""
         try:
-            collection = Database.get_collection(self.reminders_collection)
-            reminder = await collection.find_one({"_id": reminder_id})
+            reminder = await self.reminders_collection.find_one({"_id": reminder_id})
             
             if reminder:
                 # Convert ObjectId to string for JSON serialization
@@ -97,9 +95,8 @@ class ReminderDatabaseService:
         """Update reminder data."""
         try:
             update_data["updated_at"] = datetime.now()
-            
-            collection = Database.get_collection(self.reminders_collection)
-            result = await collection.update_one(
+
+            result = await self.reminders_collection.update_one(
                 {"_id": reminder_id},
                 {"$set": update_data}
             )
@@ -126,9 +123,8 @@ class ReminderDatabaseService:
             query = {"user_id": user_id}
             if status:
                 query["status"] = status.value
-                
-            collection = Database.get_collection(self.reminders_collection)
-            cursor = collection.find(query).limit(limit).sort("scheduled_time", 1)
+
+            cursor = self.reminders_collection.find(query).limit(limit).sort("scheduled_time", 1)
             
             reminders = []
             async for doc in cursor:
@@ -156,8 +152,7 @@ class ReminderDatabaseService:
                 "status": "active"
             }
             
-            collection = Database.get_collection(self.reminders_collection)
-            cursor = collection.find(query).sort("scheduled_time", 1)
+            cursor = self.reminders_collection.find(query).sort("scheduled_time", 1)
             
             reminders = []
             async for doc in cursor:
@@ -174,8 +169,7 @@ class ReminderDatabaseService:
     async def delete_reminder(self, reminder_id: str) -> bool:
         """Delete a reminder."""
         try:
-            collection = Database.get_collection(self.reminders_collection)
-            result = await collection.delete_one({"_id": reminder_id})
+            result = await self.reminders_collection.delete_one({"_id": reminder_id})
             
             if result.deleted_count > 0:
                 logger.info(f"Deleted reminder: {reminder_id}")
