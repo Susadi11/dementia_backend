@@ -9,8 +9,9 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 import logging
 import json
+from bson import ObjectId
 
-from .db_service import DatabaseService
+from src.database import Database
 from src.features.reminder_system.reminder_models import (
     Reminder, ReminderInteraction, ReminderStatus, CaregiverAlert
 )
@@ -18,56 +19,101 @@ from src.features.reminder_system.reminder_models import (
 logger = logging.getLogger(__name__)
 
 
-class ReminderDatabaseService(DatabaseService):
+class ReminderDatabaseService:
     """Enhanced database service for reminder system data persistence."""
     
     def __init__(self):
-        super().__init__()
-        self.reminders_table = "reminders"
-        self.interactions_table = "reminder_interactions"
-        self.behavior_patterns_table = "user_behavior_patterns"
-        self.caregiver_alerts_table = "caregiver_alerts"
+        self.db = Database.get_database()
+        self.reminders_collection = "reminders"
+        self.interactions_collection = "reminder_interactions"
+        self.behavior_patterns_collection = "user_behavior_patterns"
+        self.caregiver_alerts_collection = "caregiver_alerts"
 
     # ===== REMINDER MANAGEMENT =====
     
     async def create_reminder(self, reminder: Reminder) -> Dict[str, Any]:
         """Create a new reminder in database."""
-        reminder_data = {
-            "id": reminder.id,
-            "user_id": reminder.user_id,
-            "title": reminder.title,
-            "description": reminder.description,
-            "scheduled_time": reminder.scheduled_time.isoformat(),
-            "priority": reminder.priority.value,
-            "category": reminder.category,
-            "repeat_pattern": reminder.repeat_pattern,
-            "caregiver_ids": json.dumps(reminder.caregiver_ids),
-            "adaptive_scheduling_enabled": reminder.adaptive_scheduling_enabled,
-            "escalation_enabled": reminder.escalation_enabled,
-            "status": reminder.status.value,
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
-        }
-        
-        logger.info(f"Creating reminder: {reminder.id} for user {reminder.user_id}")
-        return reminder_data
+        try:
+            # Generate ObjectId if not provided
+            if not reminder.id:
+                reminder.id = str(ObjectId())
+                
+            reminder_data = {
+                "_id": reminder.id,
+                "user_id": reminder.user_id,
+                "title": reminder.title,
+                "description": reminder.description,
+                "scheduled_time": reminder.scheduled_time,
+                "priority": reminder.priority.value,
+                "category": reminder.category,
+                "repeat_pattern": reminder.repeat_pattern,
+                "repeat_interval_minutes": reminder.repeat_interval_minutes,
+                "caregiver_ids": reminder.caregiver_ids,
+                "adaptive_scheduling_enabled": reminder.adaptive_scheduling_enabled,
+                "escalation_enabled": reminder.escalation_enabled,
+                "escalation_threshold_minutes": reminder.escalation_threshold_minutes,
+                "status": reminder.status.value,
+                "notify_caregiver_on_miss": reminder.notify_caregiver_on_miss,
+                "created_at": reminder.created_at,
+                "updated_at": reminder.updated_at,
+                "completed_at": reminder.completed_at
+            }
+            
+            collection = Database.get_collection(self.reminders_collection)
+            result = await collection.insert_one(reminder_data)
+            
+            logger.info(f"Created reminder: {reminder.id} for user {reminder.user_id}")
+            
+            return {
+                "id": reminder.id,
+                "inserted_id": str(result.inserted_id),
+                "status": "created"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error creating reminder: {e}", exc_info=True)
+            raise
 
     async def get_reminder(self, reminder_id: str) -> Optional[Dict[str, Any]]:
         """Get reminder by ID."""
-        logger.info(f"Retrieving reminder: {reminder_id}")
-        # Mock implementation - replace with actual database query
-        return {
-            "id": reminder_id,
-            "user_id": "user123",
-            "title": "Take medication",
-            "status": "active"
-        }
+        try:
+            collection = Database.get_collection(self.reminders_collection)
+            reminder = await collection.find_one({"_id": reminder_id})
+            
+            if reminder:
+                # Convert ObjectId to string for JSON serialization
+                reminder["id"] = str(reminder.pop("_id"))
+                logger.info(f"Retrieved reminder: {reminder_id}")
+                return reminder
+            else:
+                logger.warning(f"Reminder not found: {reminder_id}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error retrieving reminder {reminder_id}: {e}")
+            return None
 
     async def update_reminder(self, reminder_id: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
         """Update reminder data."""
-        update_data["updated_at"] = datetime.now().isoformat()
-        logger.info(f"Updating reminder: {reminder_id}")
-        return update_data
+        try:
+            update_data["updated_at"] = datetime.now()
+            
+            collection = Database.get_collection(self.reminders_collection)
+            result = await collection.update_one(
+                {"_id": reminder_id},
+                {"$set": update_data}
+            )
+            
+            if result.matched_count > 0:
+                logger.info(f"Updated reminder: {reminder_id}")
+                return {"id": reminder_id, "modified": result.modified_count > 0}
+            else:
+                logger.warning(f"Reminder not found for update: {reminder_id}")
+                return {"id": reminder_id, "modified": False, "error": "not_found"}
+                
+        except Exception as e:
+            logger.error(f"Error updating reminder {reminder_id}: {e}")
+            raise
 
     async def get_user_reminders(
         self, 
@@ -76,25 +122,71 @@ class ReminderDatabaseService(DatabaseService):
         limit: int = 100
     ) -> List[Dict[str, Any]]:
         """Get all reminders for a user with optional status filter."""
-        logger.info(f"Getting reminders for user {user_id}, status: {status}")
-        # Mock implementation - replace with actual database query
-        return [
-            {
-                "id": "rem1",
-                "title": "Morning medication",
-                "scheduled_time": "2025-12-13T08:00:00",
-                "status": "active"
-            }
-        ]
+        try:
+            query = {"user_id": user_id}
+            if status:
+                query["status"] = status.value
+                
+            collection = Database.get_collection(self.reminders_collection)
+            cursor = collection.find(query).limit(limit).sort("scheduled_time", 1)
+            
+            reminders = []
+            async for doc in cursor:
+                doc["id"] = str(doc.pop("_id"))
+                reminders.append(doc)
+                
+            logger.info(f"Retrieved {len(reminders)} reminders for user {user_id}")
+            return reminders
+            
+        except Exception as e:
+            logger.error(f"Error getting reminders for user {user_id}: {e}")
+            return []
 
     async def get_due_reminders(self, time_window_minutes: int = 5) -> List[Dict[str, Any]]:
         """Get reminders due within the specified time window."""
-        current_time = datetime.now()
-        window_end = current_time + timedelta(minutes=time_window_minutes)
-        
-        logger.info(f"Getting reminders due between {current_time} and {window_end}")
-        # Mock implementation - replace with actual database query
-        return []
+        try:
+            current_time = datetime.now()
+            window_end = current_time + timedelta(minutes=time_window_minutes)
+            
+            query = {
+                "scheduled_time": {
+                    "$gte": current_time,
+                    "$lte": window_end
+                },
+                "status": "active"
+            }
+            
+            collection = Database.get_collection(self.reminders_collection)
+            cursor = collection.find(query).sort("scheduled_time", 1)
+            
+            reminders = []
+            async for doc in cursor:
+                doc["id"] = str(doc.pop("_id"))
+                reminders.append(doc)
+                
+            logger.info(f"Found {len(reminders)} due reminders between {current_time} and {window_end}")
+            return reminders
+            
+        except Exception as e:
+            logger.error(f"Error getting due reminders: {e}")
+            return []
+
+    async def delete_reminder(self, reminder_id: str) -> bool:
+        """Delete a reminder."""
+        try:
+            collection = Database.get_collection(self.reminders_collection)
+            result = await collection.delete_one({"_id": reminder_id})
+            
+            if result.deleted_count > 0:
+                logger.info(f"Deleted reminder: {reminder_id}")
+                return True
+            else:
+                logger.warning(f"Reminder not found for deletion: {reminder_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error deleting reminder {reminder_id}: {e}")
+            return False
 
     # ===== INTERACTION TRACKING =====
     

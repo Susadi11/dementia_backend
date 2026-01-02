@@ -26,8 +26,9 @@ from src.models.conversational_ai.model_utils import DementiaPredictor
 # Temporarily disable audio processing due to dependency issues
 # from src.preprocessing.voice_processor import get_voice_processor
 # from src.preprocessing.audio_models import get_db_manager
-from src.routes import healthcheck, conversational_ai, reminder_routes
+from src.routes import healthcheck, conversational_ai, reminder_routes_complete
 from src.database import Database
+from swagger_testing import testing_router
 
 # ============================================================================
 # Game Component Imports (Gamified cognitive assessment features)
@@ -39,13 +40,17 @@ from src.models.game.model_registry import load_all_models
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('dementia_api')
 
-# Initialize FastAPI app
+# Import enhanced Swagger configuration
+from swagger_config import create_enhanced_openapi_schema, setup_swagger_ui_config
+
+# Initialize FastAPI app with enhanced configuration
 app = FastAPI(
     title="Dementia Detection & Monitoring API",
-    description="API combining conversational AI analysis and gamified cognitive assessment for dementia risk detection",
+    description="Comprehensive API combining conversational AI, gamified cognitive assessment, and intelligent reminder management for dementia risk detection",
     version="2.0.0",  # Incremented for combined system
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
 )
 
 # Add CORS middleware
@@ -61,7 +66,17 @@ app.add_middleware(
 # Existing conversational AI routes
 app.include_router(healthcheck.router)
 app.include_router(conversational_ai.router)
-app.include_router(reminder_routes.router)
+app.include_router(reminder_routes_complete.router)
+app.include_router(testing_router)  # Add testing endpoints for Swagger
+
+# Setup enhanced Swagger configuration
+setup_swagger_ui_config(app)
+
+# Custom OpenAPI schema
+@app.get("/openapi.json", include_in_schema=False)
+async def get_openapi():
+    """Get enhanced OpenAPI schema."""
+    return create_enhanced_openapi_schema(app)
 
 # Game component routes
 app.include_router(game_routes.router)
@@ -235,7 +250,8 @@ async def root():
         "docs": "/docs",
         "features": {
             "conversational_ai": "Analyze speech patterns for dementia indicators",
-            "gamified_assessment": "Card-matching game with cognitive risk scoring"
+            "gamified_assessment": "Card-matching game with cognitive risk scoring",
+            "smart_reminders": "Context-aware intelligent reminder management system"
         },
         "components": {
             "conversational": [
@@ -250,6 +266,11 @@ async def root():
                 "/game/calibration",
                 "/game/history/{userId}",
                 "/game/stats/{userId}"
+            ],
+            "reminders": [
+                "/reminders",
+                "/reminders/{reminder_id}",
+                "/reminders/user/{user_id}"
             ]
         }
     }
