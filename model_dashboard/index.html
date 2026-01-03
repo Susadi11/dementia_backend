@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dementia Detection Models - Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="title">Model Dashboard</h1>
+                <p class="subtitle">Dementia Detection & Care Backend</p>
+                <div class="stats-row">
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalModels">-</div>
+                        <div class="stat-label">Total Models</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="lastUpdated">-</div>
+                        <div class="stat-label">Last Updated</div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Filters -->
+        <div class="filters">
+            <button class="filter-btn active" data-category="all">All Models</button>
+            <button class="filter-btn" data-category="Conversational AI">Conversational AI</button>
+            <button class="filter-btn" data-category="Reminder System">Reminder System</button>
+            <button class="filter-btn" data-category="Game Analysis">Game Analysis</button>
+        </div>
+
+        <!-- Models Grid -->
+        <div class="models-grid" id="modelsGrid">
+            <!-- Models will be loaded here dynamically -->
+        </div>
+    </div>
+
+    <!-- Model Detail Modal -->
+    <div class="modal" id="modelModal">
+        <div class="modal-content">
+            <span class="close-btn" id="closeModal">&times;</span>
+            <div id="modalBody">
+                <!-- Model details will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

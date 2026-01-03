@@ -132,6 +132,12 @@ async def process_voice_chat(
         # Get file extension for proper handling
         file_ext = Path(file.filename).suffix or ".wav"
 
+        # Log file size for debugging
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(0)
+        logger.info(f"Processing voice message... Size: {file_size} bytes")
+
         # Save uploaded file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_audio:
             content = await file.read()
