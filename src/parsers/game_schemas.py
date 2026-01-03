@@ -128,3 +128,42 @@ class UserStatsResponse(BaseModel):
     currentRiskLevel: str
     recentRiskScore: float
     lastSessionDate: Optional[str] = None
+
+
+# ============================================================================
+# Risk Assessment Schemas
+# ============================================================================
+
+class RiskFeatures(BaseModel):
+    """Features used for risk prediction"""
+    mean_sac: float
+    slope_sac: float
+    mean_ies: float
+    slope_ies: float
+    mean_accuracy: float
+    mean_rt: float
+    mean_variability: float
+    lstm_score: float
+
+class RiskPredictionDetail(BaseModel):
+    """Detailed prediction output"""
+    prob_low: float
+    prob_medium: float
+    prob_high: float
+    label: str
+    risk_score_0_100: float
+
+class RiskAssessmentResponse(BaseModel):
+    """Response for /risk/predict/{user_id}"""
+    user_id: str
+    window_size: int
+    features_used: RiskFeatures
+    prediction: RiskPredictionDetail
+    scale_note: str = "Risk bands align to GDS 1 / 2-3 / 4-5 (not diagnosis)"
+    created_at: str
+
+class RiskHistoryResponse(BaseModel):
+    """Response for /risk/history/{user_id}"""
+    user_id: str
+    total_predictions: int
+    history: List[RiskAssessmentResponse]
