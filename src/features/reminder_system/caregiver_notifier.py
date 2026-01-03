@@ -236,6 +236,119 @@ class CaregiverNotifier:
             message=message
         )
     
+    def create_confusion_alert(
+        self,
+        reminder: Reminder,
+        interaction: ReminderInteraction
+    ) -> CaregiverAlert:
+        """
+        Create a confusion alert for caregivers.
+        
+        Args:
+            reminder: Reminder that triggered confusion
+            interaction: User interaction details
+        
+        Returns:
+            CaregiverAlert object
+        """
+        return CaregiverAlert(
+            caregiver_id=reminder.caregiver_ids[0] if reminder.caregiver_ids else "unknown",
+            user_id=reminder.user_id,
+            reminder_id=reminder.id,
+            alert_type="confusion_detected",
+            severity="high",
+            message=(
+                f"Patient appears confused about reminder: {reminder.title}. "
+                f"Response: \"{interaction.user_response_text}\". "
+                f"Cognitive risk score: {interaction.cognitive_risk_score:.2f}. "
+                f"Patient may need in-person assistance or clarification."
+            ),
+            reminder_title=reminder.title,
+            cognitive_risk_score=interaction.cognitive_risk_score,
+            user_response=interaction.user_response_text,
+            created_at=datetime.now()
+        )
+    
+    def create_missed_reminder_alert(
+        self,
+        reminder: Reminder,
+        missed_count: int = 1
+    ) -> CaregiverAlert:
+        """
+        Create a missed reminder alert.
+        
+        Args:
+            reminder: Missed reminder
+            missed_count: Number of times missed
+        
+        Returns:
+            CaregiverAlert object
+        """
+        severity = "critical" if missed_count >= 3 else "high"
+        
+        message = (
+            f"Patient has missed {missed_count} reminder(s) for: {reminder.title}. "
+            f"Last scheduled: {reminder.scheduled_time.strftime('%H:%M on %b %d')}. "
+        )
+        
+        if reminder.category == "medication":
+            message += "This is a medication reminder - please verify patient status immediately."
+        elif reminder.category == "appointment":
+            message += "This is a medical appointment reminder - please check with patient."
+        else:
+            message += "Please check on patient and provide assistance if needed."
+        
+        return CaregiverAlert(
+            caregiver_id=reminder.caregiver_ids[0] if reminder.caregiver_ids else "unknown",
+            user_id=reminder.user_id,
+            reminder_id=reminder.id,
+            alert_type="missed_reminder",
+            severity=severity,
+            message=message,
+            reminder_title=reminder.title,
+            missed_count=missed_count,
+            created_at=datetime.now()
+        )
+    
+    def create_high_risk_pattern_alert(
+        self,
+        user_id: str,
+        reminder_id: str,
+        risk_score: float,
+        pattern_details: str,
+        caregiver_ids: List[str]
+    ) -> CaregiverAlert:
+        """
+        Create a high-risk pattern alert.
+        
+        Args:
+            user_id: Patient identifier
+            reminder_id: Related reminder ID
+            risk_score: Cognitive risk score
+            pattern_details: Description of the pattern
+            caregiver_ids: List of caregiver IDs
+        
+        Returns:
+            CaregiverAlert object
+        """
+        return CaregiverAlert(
+            caregiver_id=caregiver_ids[0] if caregiver_ids else "unknown",
+            user_id=user_id,
+            reminder_id=reminder_id,
+            alert_type="high_risk_pattern",
+            severity="critical",
+            message=(
+                f"High cognitive risk pattern detected. "
+                f"Risk score: {risk_score:.2f}. "
+                f"Pattern: {pattern_details}. "
+                f"Consider scheduling medical evaluation."
+            ),
+            reminder_title="Cognitive Risk Pattern Alert",
+            cognitive_risk_score=risk_score,
+            created_at=datetime.now(),
+            context={"risk_score": risk_score, "pattern_details": pattern_details}
+        )
+    
     def send_daily_summary(
         self,
         caregiver_id: str,

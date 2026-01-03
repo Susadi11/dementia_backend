@@ -39,7 +39,7 @@ spacy==3.7.2
 nltk==3.8.1
 transformers==4.45.0  # Required for LLaMA 3.2 rope_scaling support
 torch==2.1.0
-peft>=0.7.0  # For LoRA adapter loading
+peft>=0.7.0,<0.14.0  # For LoRA adapter loading, compatible with transformers 4.45.0
 sentence-transformers==2.2.2
 textblob==0.17.1
 langdetect==1.0.9

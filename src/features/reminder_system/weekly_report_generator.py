@@ -105,7 +105,8 @@ class WeeklyReportGenerator:
     def generate_weekly_report(
         self,
         user_id: str,
-        end_date: Optional[datetime] = None
+        end_date: Optional[datetime] = None,
+        caregiver_ids: Optional[List[str]] = None
     ) -> WeeklyCognitiveReport:
         """
         Generate comprehensive weekly report for a user.
@@ -113,6 +114,7 @@ class WeeklyReportGenerator:
         Args:
             user_id: User identifier
             end_date: End date for report (default: today)
+            caregiver_ids: Optional list of caregiver IDs (for compatibility)
         
         Returns:
             WeeklyCognitiveReport with all metrics and analysis
