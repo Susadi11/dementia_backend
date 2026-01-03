@@ -324,3 +324,109 @@ async def process_game_session(
         "prediction": prediction,
         "timestamp": session_doc["timestamp"].isoformat()
     }
+
+
+# ============================================================================
+# Risk Prediction Service (Standalone)
+# ============================================================================
+async def analyze_risk_window(userId: str, window_size: int = 10) -> Dict:
+    """
+    Compute risk independent of a new game session.
+    Fetches last N sessions, computes features, runs models.
+    """
+    # 1. Fetch history
+    sessions = await fetch_last_n_sessions(userId, window_size)
+    
+    if not sessions:
+        # No history, return default low risk
+        return {
+            "prediction": {
+                "prob_low": 1.0, "prob_medium": 0.0, "prob_high": 0.0,
+                "label": "LOW", "risk_score_0_100": 0.0
+            },
+            "features_used": {
+                "mean_sac": 0.0, "slope_sac": 0.0, "mean_ies": 0.0, "slope_ies": 0.0,
+                "mean_accuracy": 0.0, "mean_rt": 0.0, "mean_variability": 0.0,
+                "lstm_score": 0.0
+            },
+            "window_size": 0
+        }
+
+    # 2. Prepare features
+    # Use the most recent session as "current" for feature extraction
+    latest_session = sessions[-1] # sessions are reversed in fetch_last_n_sessions (oldest -> newest)
+    
+    current_features = latest_session.get("features", {})
+    
+    # 3. Models
+    lstm_score = predict_lstm_decline(sessions)
+    
+    # Compute feature values for return (debug/display)
+    sac_values = [s["features"].get("sac", 0) for s in sessions]
+    ies_values = [s["features"].get("ies", 0) for s in sessions]
+    rt_values = [s["features"].get("rtAdjMedian", 0) for s in sessions]
+    
+    def get_slope(values):
+        if len(values) < 2: return 0.0
+        return float(np.polyfit(np.arange(len(values)), values, 1)[0])
+        
+    features_used = {
+        "mean_sac": float(np.mean(sac_values)),
+        "slope_sac": get_slope(sac_values),
+        "mean_ies": float(np.mean(ies_values)),
+        "slope_ies": get_slope(ies_values),
+        "mean_accuracy": float(np.mean([s["features"].get("accuracy", 0) for s in sessions])),
+        "mean_rt": float(np.mean(rt_values)),
+        "mean_variability": float(np.mean([s["features"].get("variability", 0) for s in sessions])),
+        "lstm_score": lstm_score
+    }
+    
+    # Run prediction
+    prediction_result = predict_risk(sessions, current_features, lstm_score)
+    
+    # Map to simpler structure
+    probs = prediction_result["riskProbability"]
+    prediction_detail = {
+        "prob_low": probs["LOW"],
+        "prob_medium": probs["MEDIUM"],
+        "prob_high": probs["HIGH"],
+        "label": prediction_result["riskLevel"],
+        "risk_score_0_100": prediction_result["riskScore0_100"]
+    }
+    
+    # 4. Store standalone prediction
+    risk_predictions = Database.get_collection("risk_predictions")
+    prediction_doc = {
+        "userId": userId,
+        "window_size": window_size,
+        "features_used": features_used,
+        "prediction": prediction_detail,
+        "created_at": datetime.utcnow()
+    }
+    await risk_predictions.insert_one(prediction_doc)
+    
+    return {
+        "user_id": userId,
+        "window_size": len(sessions),
+        "features_used": features_used,
+        "prediction": prediction_detail,
+        "created_at": prediction_doc["created_at"].isoformat()
+    }
+
+async def get_risk_history(userId: str) -> List[Dict]:
+    """Get all past risk predictions for a user"""
+    risk_predictions = Database.get_collection("risk_predictions")
+    cursor = risk_predictions.find({"userId": userId}).sort("created_at", -1)
+    
+    history = []
+    async for doc in cursor:
+        history.append({
+            "user_id": doc["userId"],
+            "window_size": doc["window_size"],
+            "features_used": doc["features_used"],
+            "prediction": doc["prediction"],
+            "scale_note": "Risk bands align to GDS 1 / 2-3 / 4-5 (not diagnosis)",
+            "created_at": doc["created_at"].isoformat()
+        })
+        
+    return history

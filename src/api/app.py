@@ -23,15 +23,15 @@ from src.models.conversational_ai.model_utils import DementiaPredictor
 # Temporarily disable audio processing due to dependency issues
 # from src.preprocessing.voice_processor import get_voice_processor
 # from src.preprocessing.audio_models import get_db_manager
-from src.routes import healthcheck, conversational_ai, reminder_routes
+from src.routes import healthcheck, conversational_ai, reminder_routes, game_routes, risk_routes
+
 from src.database import Database
 
 # ============================================================================
 # Game Component Imports (Gamified cognitive assessment features)
 # ============================================================================
-# DISABLED: Missing game_schemas parsers
-# from src.routes import game_routes
-# from src.models.game.model_registry import load_all_models
+# Game Component Imports
+from src.models.game.model_registry import load_all_models
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -61,8 +61,9 @@ app.include_router(healthcheck.router)
 app.include_router(conversational_ai.router)
 app.include_router(reminder_routes.router)
 
-# Game component routes - DISABLED (missing parsers)
-# app.include_router(game_routes.router)
+# Game component routes
+app.include_router(game_routes.router)
+app.include_router(risk_routes.router)
 
 # Initialize components
 feature_extractor = FeatureExtractor()
@@ -254,6 +255,10 @@ async def root():
                 "/reminders",
                 "/reminders/{reminder_id}",
                 "/reminders/user/{user_id}"
+            ],
+            "risk": [
+                "/risk/predict/{userId}",
+                "/risk/history/{userId}"
             ]
         }
     }
@@ -689,18 +694,17 @@ async def startup_event():
         logger.error(f"MongoDB connection failed: {e}")
         logger.warning("API will continue without database connection")
 
-    # Game components disabled (missing parsers)
-    # try:
-    #     await create_game_indexes()
-    #     logger.info("✓ Game component indexes created")
-    # except Exception as e:
-    #     logger.warning(f"Game index creation warning: {e}")
-    #
-    # try:
-    #     load_all_models()
-    #     logger.info("✓ Game ML models loaded")
-    # except Exception as e:
-    #     logger.warning(f"Game model loading warning: {e}")
+    try:
+        await create_game_indexes()
+        logger.info("✓ Game component indexes created")
+    except Exception as e:
+        logger.warning(f"Game index creation warning: {e}")
+    
+    try:
+        load_all_models()
+        logger.info("✓ Game ML models loaded")
+    except Exception as e:
+        logger.warning(f"Game model loading warning: {e}")
 
     logger.info("=" * 80)
     logger.info("API ready to serve requests")
@@ -708,30 +712,34 @@ async def startup_event():
 
 
 # ============================================================================
-# Helper: Create Game Component Indexes (DISABLED)
+# Helper: Create Game Component Indexes
 # ============================================================================
-# async def create_game_indexes():
-#     """Create indexes for game collections"""
-#     try:
-#         logger.info("Creating game component indexes...")
-#
-#         # game_sessions indexes
-#         game_sessions = Database.get_collection("game_sessions")
-#         await game_sessions.create_index([("userId", 1), ("timestamp", -1)])
-#         await game_sessions.create_index([("userId", 1), ("sessionId", 1)], unique=True)
-#
-#         # calibrations indexes
-#         calibrations = Database.get_collection("calibrations")
-#         await calibrations.create_index([("userId", 1), ("calibrationDate", -1)])
-#
-#         # alerts indexes
-#         alerts = Database.get_collection("alerts")
-#         await alerts.create_index([("userId", 1), ("timestamp", -1)])
-#
-#         logger.info("✓ Game indexes created successfully")
-#
-#     except Exception as e:
-#         logger.warning(f"Error creating game indexes: {e}")
+async def create_game_indexes():
+    """Create indexes for game collections"""
+    try:
+        logger.info("Creating game component indexes...")
+
+        # game_sessions indexes
+        game_sessions = Database.get_collection("game_sessions")
+        await game_sessions.create_index([("userId", 1), ("timestamp", -1)])
+        await game_sessions.create_index([("userId", 1), ("sessionId", 1)], unique=True)
+
+        # calibrations indexes
+        calibrations = Database.get_collection("calibrations")
+        await calibrations.create_index([("userId", 1), ("calibrationDate", -1)])
+        
+        # risk_predictions indexes
+        risk_predictions = Database.get_collection("risk_predictions")
+        await risk_predictions.create_index([("userId", 1), ("created_at", -1)])
+
+        # alerts indexes
+        alerts = Database.get_collection("alerts")
+        await alerts.create_index([("userId", 1), ("timestamp", -1)])
+
+        logger.info("✓ Game indexes created successfully")
+
+    except Exception as e:
+        logger.warning(f"Error creating game indexes: {e}")
 
 
 @app.on_event("shutdown")

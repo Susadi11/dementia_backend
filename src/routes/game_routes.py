@@ -81,6 +81,36 @@ async def submit_game_session(request: GameSessionRequest):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
+# GET /game/motor-baseline/{userId}
+# ============================================================================
+@router.get("/motor-baseline/{userId}")
+async def get_motor_baseline(userId: str):
+    """
+    Get user's latest motor baseline.
+    """
+    try:
+        calibrations = Database.get_collection("calibrations")
+        calibration = await calibrations.find_one(
+            {"userId": userId},
+            sort=[("calibrationDate", -1)]
+        )
+        
+        if not calibration:
+            return {"userId": userId, "motor_baseline": None, "message": "No calibration found"}
+            
+        return {
+            "userId": userId,
+            "motor_baseline": calibration.get("motorBaseline"),
+            "n_taps": len(calibration.get("tapTimes", [])),
+            "created_at": calibration.get("calibrationDate")
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching baseline: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch baseline")
+
+
+# ============================================================================
 # POST /game/calibration - Motor Baseline Calibration
 # ============================================================================
 @router.post("/calibration", response_model=CalibrationResponse)
