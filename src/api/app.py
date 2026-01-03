@@ -18,9 +18,6 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# ============================================================================
-# Conversational AI Imports (Team's existing features)
-# ============================================================================
 from src.features.conversational_ai.feature_extractor import FeatureExtractor
 from src.models.conversational_ai.model_utils import DementiaPredictor
 # Temporarily disable audio processing due to dependency issues
@@ -44,7 +41,7 @@ logger = logging.getLogger('dementia_api')
 app = FastAPI(
     title="Dementia Detection & Monitoring API",
     description="Comprehensive API combining conversational AI, gamified cognitive assessment, and intelligent reminder management for dementia risk detection",
-    version="2.0.0",  # Incremented for combined system
+    version="2.0.0", 
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -59,8 +56,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-# Existing conversational AI routes
+
 app.include_router(healthcheck.router)
 app.include_router(conversational_ai.router)
 app.include_router(reminder_routes.router)
