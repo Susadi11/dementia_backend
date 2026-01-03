@@ -98,7 +98,7 @@ async def process_voice_chat(
     session_id: Optional[str] = Form(None, description="Optional session ID"),
     max_tokens: int = Form(150, description="Maximum tokens to generate"),
     temperature: float = Form(0.7, description="Sampling temperature"),
-    language: Optional[str] = Form(None, description="Language code (e.g., 'en', 'es') or auto-detect")
+    language: Optional[str] = Form(None, description="Language code (e.g., 'en', 'es') - Leave empty for auto-detection", example="en")
 ) -> VoiceResponse:
     """
     Process voice chat message with local Whisper transcription.
@@ -142,9 +142,16 @@ async def process_voice_chat(
             # Step 1: Transcribe audio using local Whisper
             logger.info("📝 Step 1: Transcribing audio with Whisper...")
             whisper_service = get_whisper_service()
+            
+            # Sanitize language parameter - Swagger sends "string" as placeholder
+            # Only pass language if it's a valid 2-letter code, otherwise let Whisper auto-detect
+            valid_language = None
+            if language and language.lower() != "string" and len(language) == 2:
+                valid_language = language.lower()
+            
             transcription_result = whisper_service.transcribe(
                 audio_path=temp_audio_path,
-                language=language
+                language=valid_language
             )
 
             transcribed_text = transcription_result["text"]

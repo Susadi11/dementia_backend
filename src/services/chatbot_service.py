@@ -17,7 +17,30 @@ from datetime import datetime
 # Import NLP Engine for intelligent context detection
 from src.features.conversational_ai.nlp.nlp_engine import NLPEngine
 
+import logging
+import transformers.pytorch_utils
+import transformers.generation.utils
+
 logger = logging.getLogger(__name__)
+
+# --- MONKEY PATCH FOR MPS COMPATIBILITY ---
+# Fixes "IndexError: tuple index out of range" in isin_mps_friendly on Apple Silicon
+# when special tokens are scalar tensors (0-d).
+def isin_mps_friendly_patched(elements, test_elements):
+    if test_elements.ndim == 0:
+        test_elements = test_elements.unsqueeze(0)
+    if elements.ndim == 0:
+        elements = elements.unsqueeze(0)
+    
+    # Original logic from transformers library
+    return elements.tile(test_elements.shape[0], 1).eq(test_elements.unsqueeze(1)).sum(dim=0).bool().squeeze()
+
+# Apply patch to likely locations
+transformers.pytorch_utils.isin_mps_friendly = isin_mps_friendly_patched
+if hasattr(transformers.generation.utils, "isin_mps_friendly"):
+    transformers.generation.utils.isin_mps_friendly = isin_mps_friendly_patched
+logger.info("🔧 Applied MPS compatibility patch for transformers library")
+# ------------------------------------------
 
 
 class DementiaChatbot:
@@ -185,6 +208,16 @@ class DementiaChatbot:
                 max_length=512
             ).to(self.device)
 
+            # Prepare token IDs - ensure they are integers, not tuples/lists
+            pad_token_id = self.tokenizer.pad_token_id
+            eos_token_id = self.tokenizer.eos_token_id
+            
+            # Handle case where token IDs might be lists/tuples
+            if isinstance(pad_token_id, (list, tuple)):
+                pad_token_id = pad_token_id[0] if len(pad_token_id) > 0 else None
+            if isinstance(eos_token_id, (list, tuple)):
+                eos_token_id = eos_token_id[0] if len(eos_token_id) > 0 else None
+            
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
@@ -192,24 +225,30 @@ class DementiaChatbot:
                     temperature=temperature,
                     top_p=top_p,
                     do_sample=True,
-                    pad_token_id=self.tokenizer.pad_token_id,
-                    eos_token_id=self.tokenizer.eos_token_id,
+                    pad_token_id=pad_token_id,
+                    eos_token_id=eos_token_id,
                 )
 
-            # Decode response (keep special tokens to properly extract)
-            full_response = self.tokenizer.decode(outputs[0], skip_special_tokens=False)
+            # Decode response
+            # Handle different return types from generate()
+            if isinstance(outputs, tuple):
+                generated_ids = outputs[0][0]
+            elif hasattr(outputs, 'sequences'):
+                generated_ids = outputs.sequences[0]
+            else:
+                generated_ids = outputs[0]
+            
+            full_response = self.tokenizer.decode(generated_ids, skip_special_tokens=False)
 
             # Extract just the assistant's response
             response_text = self._extract_response(full_response, prompt)
 
             # If extraction failed, try with skip_special_tokens
             if not response_text or len(response_text.strip()) == 0:
-                full_response_clean = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-                # Try simple extraction: everything after the prompt
+                full_response_clean = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
                 if full_response_clean.startswith(prompt):
                     response_text = full_response_clean[len(prompt):].strip()
                 else:
-                    # Fallback: just use the decoded output
                     response_text = full_response_clean.strip()
 
             # Store in conversation history
