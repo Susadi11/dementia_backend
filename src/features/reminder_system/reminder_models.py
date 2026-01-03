@@ -91,6 +91,7 @@ class ReminderInteraction(BaseModel):
     id: Optional[str] = None
     reminder_id: str
     user_id: str
+    reminder_category: Optional[str] = None
     
     # Interaction details
     interaction_type: InteractionType

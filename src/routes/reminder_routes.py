@@ -23,6 +23,9 @@ from src.features.reminder_system.caregiver_notifier import CaregiverNotifier
 from src.features.reminder_system.reminder_models import (
     ReminderStatus, ReminderPriority, CaregiverAlert
 )
+from src.features.reminder_system.weekly_report_generator import (
+    WeeklyReportGenerator, WeeklyCognitiveReport
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,7 @@ reminder_analyzer = PittBasedReminderAnalyzer()
 behavior_tracker = BehaviorTracker()
 scheduler = AdaptiveReminderScheduler(behavior_tracker, reminder_analyzer)
 caregiver_notifier = CaregiverNotifier()
+report_generator = WeeklyReportGenerator(behavior_tracker)
 
 
 @router.post("/create", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -553,6 +557,119 @@ async def get_user_dashboard(user_id: str, days: int = 7):
         
     except Exception as e:
         logger.error(f"Error getting dashboard: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/reports/weekly/{user_id}", response_model=dict)
+async def get_weekly_report(
+    user_id: str,
+    end_date: Optional[str] = None,
+    format: str = "json"
+):
+    """
+    Generate comprehensive weekly risk monitoring report.
+    
+    Returns detailed analysis including:
+    - Cognitive risk trends (daily and weekly)
+    - Reminder completion statistics
+    - Confusion patterns and memory issues
+    - Caregiver alert frequency
+    - Time-of-day performance analysis
+    - Category-specific breakdowns
+    - Actionable recommendations
+    - Week-over-week comparison
+    
+    - **user_id**: Patient identifier
+    - **end_date**: End date for report (ISO 8601 format, default: today)
+    - **format**: Output format ('json' or 'pdf', default: 'json')
+    """
+    try:
+        # Parse end_date if provided
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid end_date format. Use ISO 8601 format (YYYY-MM-DDTHH:MM:SS)"
+                )
+        else:
+            end_dt = None
+        
+        # Generate report
+        report = report_generator.generate_weekly_report(
+            user_id=user_id,
+            end_date=end_dt
+        )
+        
+        # Export to file if requested
+        if format == "pdf":
+            output_path = f"reports/weekly_{user_id}_{datetime.now().strftime('%Y%m%d')}.pdf"
+            report_generator.export_report_to_pdf(report, output_path)
+            return {
+                "status": "success",
+                "message": "PDF report generated",
+                "file_path": output_path,
+                "report_summary": {
+                    "user_id": report.user_id,
+                    "period": f"{report.report_period_start} to {report.report_period_end}",
+                    "risk_level": report.risk_level,
+                    "intervention_needed": report.intervention_needed
+                }
+            }
+        
+        # Return JSON report
+        return {
+            "status": "success",
+            "report": report.dict()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating weekly report: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/reports/weekly/{user_id}/summary", response_model=dict)
+async def get_weekly_report_summary(user_id: str):
+    """
+    Get brief summary of weekly report (for dashboard display).
+    
+    Returns key metrics only:
+    - Risk level and score
+    - Completion rate
+    - Alert count
+    - Intervention status
+    
+    - **user_id**: Patient identifier
+    """
+    try:
+        report = report_generator.generate_weekly_report(user_id=user_id)
+        
+        return {
+            "status": "success",
+            "summary": {
+                "user_id": report.user_id,
+                "period": f"{report.report_period_start} to {report.report_period_end}",
+                "risk_level": report.risk_level,
+                "avg_cognitive_risk": report.avg_cognitive_risk_score,
+                "risk_trend": report.risk_trend,
+                "completion_rate": report.completion_rate,
+                "total_alerts": report.total_alerts,
+                "critical_alerts": report.critical_alerts,
+                "intervention_needed": report.intervention_needed,
+                "escalation_required": report.escalation_required,
+                "top_recommendations": report.recommendations[:3]
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating report summary: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
