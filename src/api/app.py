@@ -13,6 +13,7 @@ from pathlib import Path
 import logging
 import tempfile
 import os
+import asyncio
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -26,6 +27,7 @@ from src.models.conversational_ai.model_utils import DementiaPredictor
 from src.routes import healthcheck, conversational_ai, reminder_routes, game_routes, risk_routes
 
 from src.database import Database
+from src.services.session_finalizer import session_finalizer
 
 # ============================================================================
 # Game Component Imports (Gamified cognitive assessment features)
@@ -244,6 +246,15 @@ async def root():
                 "/api/predict",
                 "/api/features",
                 "/api/risk-levels"
+            ],
+            "detection": [
+                "/api/detection/analyze-session",
+                "/api/detection/weekly-risk",
+                "/api/detection/session/{session_id}",
+                "/api/detection/sessions/{user_id}",
+                "/api/detection/active-sessions",
+                "/api/detection/finalize-session/{session_id}",
+                "/api/detection/run-finalization-check"
             ],
             "game": [
                 "/game/session",
@@ -706,6 +717,14 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Game model loading warning: {e}")
 
+    # Start session finalizer background task
+    try:
+        # Run finalization check every hour
+        asyncio.create_task(session_finalizer.start_background_task(interval_minutes=60))
+        logger.info("✓ Session finalizer background task started (runs every 60 minutes)")
+    except Exception as e:
+        logger.warning(f"Session finalizer startup warning: {e}")
+
     logger.info("=" * 80)
     logger.info("API ready to serve requests")
     logger.info("=" * 80)
@@ -748,6 +767,13 @@ async def shutdown_event():
     logger.info("=" * 80)
     logger.info("Dementia Detection & Monitoring API shutting down...")
     logger.info("=" * 80)
+
+    # Stop session finalizer background task
+    try:
+        session_finalizer.stop_background_task()
+        logger.info("Session finalizer stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping session finalizer: {e}")
 
     # Close MongoDB connection
     await Database.close_database_connection()
