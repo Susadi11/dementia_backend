@@ -1,13 +1,6 @@
-numpy
-pandas
-scikit-learn
-librosa
-tqdm
-matplotlib
-seaborn
-joblib
-sentence-transformers   # for BERT sentence embeddings
-openai                  # for Whisper at prediction time
-fastapi
-uvicorn
-python-multipart
+fastapi==0.128.0
+joblib==1.5.3
+librosa==0.11.0
+numpy==2.4.0
+openai_whisper==20250625
+jupyter
