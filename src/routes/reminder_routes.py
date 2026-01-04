@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List, Optional
 from datetime import datetime
 import logging
+import uuid
 
 from src.features.reminder_system import (
     Reminder, ReminderCommand, ReminderResponse, ReminderInteraction,
@@ -26,6 +27,7 @@ from src.features.reminder_system.reminder_models import (
 from src.features.reminder_system.weekly_report_generator import (
     WeeklyReportGenerator, WeeklyCognitiveReport
 )
+from src.services.reminder_db_service import ReminderDatabaseService
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,16 @@ behavior_tracker = BehaviorTracker()
 scheduler = AdaptiveReminderScheduler(behavior_tracker, reminder_analyzer)
 caregiver_notifier = CaregiverNotifier()
 report_generator = WeeklyReportGenerator(behavior_tracker)
+
+# Database service - initialized lazily
+_db_service = None
+
+def get_db_service():
+    """Get database service instance (lazy initialization)."""
+    global _db_service
+    if _db_service is None:
+        _db_service = ReminderDatabaseService()
+    return _db_service
 
 
 @router.post("/create", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -54,19 +66,25 @@ async def create_reminder(reminder: Reminder):
     - **caregiver_ids**: List of caregiver IDs to notify
     """
     try:
+        # Auto-generate ID if not provided
+        if not reminder.id:
+            reminder.id = f"reminder_{uuid.uuid4().hex[:12]}"
+        
         # Set creation timestamps
         reminder.created_at = datetime.now()
         reminder.updated_at = datetime.now()
         
-        # TODO: Save to database
-        # db_service.save_reminder(reminder.dict())
+        # Save to MongoDB database
+        db_service = get_db_service()
+        db_result = await db_service.create_reminder(reminder)
         
         logger.info(f"Created reminder {reminder.id} for user {reminder.user_id}")
         
         return {
             "status": "success",
             "message": "Reminder created successfully",
-            "reminder": reminder.dict()
+            "reminder": reminder.dict(),
+            "database_id": db_result.get("id")
         }
         
     except Exception as e:
@@ -184,7 +202,7 @@ async def process_reminder_response(response: ReminderResponse):
 @router.get("/user/{user_id}", response_model=dict)
 async def get_user_reminders(
     user_id: str,
-    status_filter: Optional[ReminderStatus] = None,
+    status_filter: Optional[str] = None,
     category: Optional[str] = None
 ):
     """
@@ -195,11 +213,29 @@ async def get_user_reminders(
     - **category**: Optional filter by category
     """
     try:
-        # TODO: Query database
-        # reminders = db_service.get_user_reminders(user_id, status_filter, category)
+        # Convert status_filter string to enum if provided
+        status_enum = None
+        if status_filter:
+            try:
+                status_enum = ReminderStatus(status_filter.lower())
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid status: {status_filter}. Valid values: active, completed, missed, snoozed, cancelled"
+                )
         
-        # Mock response
-        reminders = []
+        # Query database for user reminders
+        try:
+            db_service = get_db_service()
+            reminders = await db_service.get_user_reminders(user_id, status_enum)
+        except RuntimeError as db_error:
+            logger.error(f"Database not connected: {db_error}")
+            # Return empty result if DB not connected
+            reminders = []
+        
+        # Apply category filter if specified
+        if category:
+            reminders = [r for r in reminders if r.get("category") == category]
         
         return {
             "status": "success",
@@ -208,11 +244,13 @@ async def get_user_reminders(
             "reminders": reminders
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting reminders: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail=f"Failed to retrieve reminders: {str(e)}"
         )
 
 
@@ -670,6 +708,102 @@ async def get_weekly_report_summary(user_id: str):
         
     except Exception as e:
         logger.error(f"Error generating report summary: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post("/complete/{reminder_id}", response_model=dict, status_code=status.HTTP_200_OK)
+async def complete_reminder(reminder_id: str):
+    """
+    Mark a reminder as completed and handle repeat patterns.
+    
+    For daily/weekly reminders, this will:
+    - Mark current instance as completed
+    - Create next occurrence automatically
+    
+    - **reminder_id**: Reminder identifier
+    """
+    try:
+        db_service = get_db_service()
+        
+        # Get the reminder
+        reminder_data = await db_service.get_reminder(reminder_id)
+        if not reminder_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
+        
+        # Mark as completed
+        completion_time = datetime.now()
+        await db_service.update_reminder(
+            reminder_id,
+            {
+                "status": "completed",
+                "completed_at": completion_time
+            }
+        )
+        
+        logger.info(f"Marked reminder {reminder_id} as completed")
+        
+        # Handle repeat patterns
+        repeat_pattern = reminder_data.get("repeat_pattern")
+        next_reminder_id = None
+        next_scheduled_time = None
+        
+        if repeat_pattern in ["daily", "weekly"]:
+            # Calculate next occurrence
+            current_scheduled = reminder_data["scheduled_time"]
+            if isinstance(current_scheduled, str):
+                current_scheduled = datetime.fromisoformat(current_scheduled.replace('+00:00', ''))
+            
+            if repeat_pattern == "daily":
+                next_scheduled_time = current_scheduled + timedelta(days=1)
+            elif repeat_pattern == "weekly":
+                next_scheduled_time = current_scheduled + timedelta(weeks=1)
+            
+            # Create next reminder instance
+            from src.features.reminder_system.reminder_models import Reminder, ReminderPriority, ReminderStatus
+            
+            next_reminder = Reminder(
+                id=f"reminder_{uuid.uuid4().hex[:12]}",
+                user_id=reminder_data["user_id"],
+                title=reminder_data["title"],
+                description=reminder_data.get("description"),
+                scheduled_time=next_scheduled_time,
+                priority=ReminderPriority(reminder_data.get("priority", "medium")),
+                category=reminder_data.get("category", "general"),
+                repeat_pattern=repeat_pattern,
+                repeat_interval_minutes=reminder_data.get("repeat_interval_minutes"),
+                caregiver_ids=reminder_data.get("caregiver_ids", []),
+                adaptive_scheduling_enabled=reminder_data.get("adaptive_scheduling_enabled", True),
+                escalation_enabled=reminder_data.get("escalation_enabled", True),
+                escalation_threshold_minutes=reminder_data.get("escalation_threshold_minutes", 30),
+                notify_caregiver_on_miss=reminder_data.get("notify_caregiver_on_miss", True),
+                status=ReminderStatus.ACTIVE
+            )
+            
+            result = await db_service.create_reminder(next_reminder)
+            next_reminder_id = result["id"]
+            
+            logger.info(f"Created next {repeat_pattern} reminder {next_reminder_id} scheduled for {next_scheduled_time}")
+        
+        return {
+            "status": "success",
+            "message": "Reminder completed successfully",
+            "reminder_id": reminder_id,
+            "completed_at": completion_time.isoformat(),
+            "has_next_occurrence": next_reminder_id is not None,
+            "next_reminder_id": next_reminder_id,
+            "next_scheduled_time": next_scheduled_time.isoformat() if next_scheduled_time else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error completing reminder: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)

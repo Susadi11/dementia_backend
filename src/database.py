@@ -81,7 +81,7 @@ class Database:
         Returns:
             MongoDB collection object
         """
-        if not cls.db:
+        if cls.db is None:
             raise RuntimeError("Database not connected. Call connect_to_database() first.")
 
         return cls.db[collection_name]
