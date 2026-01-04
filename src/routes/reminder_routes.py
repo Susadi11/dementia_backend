@@ -10,11 +10,14 @@ Provides endpoints for:
 - Caregiver notifications
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
 from typing import List, Optional
 from datetime import datetime
 import logging
 import uuid
+import tempfile
+import os
+from pathlib import Path
 
 from src.features.reminder_system import (
     Reminder, ReminderCommand, ReminderResponse, ReminderInteraction,
@@ -28,6 +31,8 @@ from src.features.reminder_system.weekly_report_generator import (
     WeeklyReportGenerator, WeeklyCognitiveReport
 )
 from src.services.reminder_db_service import ReminderDatabaseService
+from src.services.whisper_service import get_whisper_service
+from src.features.conversational_ai.nlp.nlp_engine import NLPEngine
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +45,142 @@ behavior_tracker = BehaviorTracker()
 scheduler = AdaptiveReminderScheduler(behavior_tracker, reminder_analyzer)
 caregiver_notifier = CaregiverNotifier()
 report_generator = WeeklyReportGenerator(behavior_tracker)
+nlp_engine = NLPEngine()
 
 # Database service - initialized lazily
 _db_service = None
+
+def _parse_reminder_from_text(
+    text: str,
+    user_id: str,
+    priority_override: Optional[str] = None
+) -> dict:
+    """
+    Parse reminder details from natural language text using NLP.
+    
+    Extracts:
+    - Title and description
+    - Category (medication, appointment, meal, etc.)
+    - Time/date information
+    - Recurrence pattern
+    - Priority level
+    """
+    from datetime import timedelta
+    import re
+    
+    text_lower = text.lower()
+    
+    # Extract category based on keywords
+    category = "general"
+    if any(word in text_lower for word in ["medicine", "medication", "pill", "tablet", "drug"]):
+        category = "medication"
+    elif any(word in text_lower for word in ["doctor", "appointment", "visit", "checkup"]):
+        category = "appointment"
+    elif any(word in text_lower for word in ["breakfast", "lunch", "dinner", "meal", "eat"]):
+        category = "meal"
+    elif any(word in text_lower for word in ["shower", "bath", "hygiene", "brush", "wash"]):
+        category = "hygiene"
+    elif any(word in text_lower for word in ["exercise", "walk", "activity"]):
+        category = "activity"
+    
+    # Extract priority
+    priority = priority_override or "medium"
+    if any(word in text_lower for word in ["urgent", "critical", "important", "asap"]):
+        priority = "high"
+    elif any(word in text_lower for word in ["when you can", "sometime", "eventually"]):
+        priority = "low"
+    
+    # Extract recurrence pattern
+    recurrence = None
+    if any(word in text_lower for word in ["every day", "daily", "everyday"]):
+        recurrence = "daily"
+    elif any(word in text_lower for word in ["every week", "weekly"]):
+        recurrence = "weekly"
+    elif any(word in text_lower for word in ["every month", "monthly"]):
+        recurrence = "monthly"
+    
+    # Extract time information (basic parsing)
+    scheduled_time = datetime.now() + timedelta(hours=1)  # Default: 1 hour from now
+    
+    # Look for time patterns like "8 AM", "2:30 PM", "at noon"
+    time_patterns = [
+        r'(\d{1,2})\s*(?::|\.)\s*(\d{2})\s*(am|pm)',  # 2:30 PM
+        r'(\d{1,2})\s*(am|pm)',  # 8 AM
+        r'at\s+(\d{1,2})(?:\s*o\'?clock)?',  # at 8 o'clock
+    ]
+    
+    for pattern in time_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            try:
+                if len(match.groups()) == 3:  # HH:MM AM/PM
+                    hour = int(match.group(1))
+                    minute = int(match.group(2))
+                    period = match.group(3)
+                    if period == 'pm' and hour < 12:
+                        hour += 12
+                    elif period == 'am' and hour == 12:
+                        hour = 0
+                elif len(match.groups()) == 2:  # HH AM/PM
+                    hour = int(match.group(1))
+                    minute = 0
+                    period = match.group(2)
+                    if period == 'pm' and hour < 12:
+                        hour += 12
+                    elif period == 'am' and hour == 12:
+                        hour = 0
+                else:  # Just hour
+                    hour = int(match.group(1))
+                    minute = 0
+                
+                # Set the time for today or tomorrow if time has passed
+                scheduled_time = datetime.now().replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if scheduled_time < datetime.now():
+                    scheduled_time += timedelta(days=1)
+                break
+            except (ValueError, AttributeError):
+                pass
+    
+    # Special time keywords
+    if "noon" in text_lower or "lunch time" in text_lower:
+        scheduled_time = datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
+        if scheduled_time < datetime.now():
+            scheduled_time += timedelta(days=1)
+    elif "morning" in text_lower:
+        scheduled_time = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
+        if scheduled_time < datetime.now():
+            scheduled_time += timedelta(days=1)
+    elif "evening" in text_lower or "dinner" in text_lower:
+        scheduled_time = datetime.now().replace(hour=18, minute=0, second=0, microsecond=0)
+        if scheduled_time < datetime.now():
+            scheduled_time += timedelta(days=1)
+    elif "night" in text_lower or "bedtime" in text_lower:
+        scheduled_time = datetime.now().replace(hour=21, minute=0, second=0, microsecond=0)
+        if scheduled_time < datetime.now():
+            scheduled_time += timedelta(days=1)
+    
+    # Generate title (extract main action)
+    title = text[:50]  # First 50 chars
+    if category == "medication":
+        title = "Take Medication"
+    elif category == "appointment":
+        title = "Appointment Reminder"
+    elif category == "meal":
+        title = "Meal Reminder"
+    
+    # Add time context to title if recurrence exists
+    if recurrence:
+        title = f"{title} ({recurrence.capitalize()})"
+    
+    return {
+        "title": title,
+        "description": text,
+        "category": category,
+        "priority": priority,
+        "scheduled_time": scheduled_time,
+        "recurrence": recurrence
+    }
+
 
 def get_db_service():
     """Get database service instance (lazy initialization)."""
@@ -95,10 +233,138 @@ async def create_reminder(reminder: Reminder):
         )
 
 
+@router.post("/create-from-audio", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def create_reminder_from_audio(
+    user_id: str = Form(..., description="User identifier"),
+    file: UploadFile = File(..., description="Audio file (wav, mp3, m4a, ogg, flac)"),
+    priority: Optional[str] = Form("medium", description="Reminder priority (low, medium, high, critical)"),
+    caregiver_ids: Optional[str] = Form(None, description="Comma-separated caregiver IDs")
+):
+    """
+    Create reminder from audio recording using Whisper transcription + NLP parsing.
+    
+    **Flow:**
+    1. Upload audio file
+    2. Transcribe using Whisper (local, free)
+    3. Parse reminder details from transcription (NLP)
+    4. Create reminder automatically
+    
+    **Example audio commands:**
+    - "Remind me to take my blood pressure medicine at 8 AM every morning"
+    - "Set a reminder for doctor appointment next Tuesday at 2 PM"
+    - "I need to remember my lunch at noon daily"
+    
+    **Parameters:**
+    - **user_id**: User identifier
+    - **file**: Audio file containing the reminder command
+    - **priority**: Optional priority override (default: extracted from audio)
+    - **caregiver_ids**: Optional caregiver IDs to notify (comma-separated)
+    """
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No audio file provided")
+        
+        logger.info(f"Creating reminder from audio for user: {user_id}")
+        
+        # Get file extension
+        file_ext = Path(file.filename).suffix or ".wav"
+        
+        # Log file size
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(0)
+        logger.info(f"Processing audio file... Size: {file_size} bytes")
+        
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_audio:
+            content = await file.read()
+            temp_audio.write(content)
+            temp_audio_path = temp_audio.name
+        
+        try:
+            # Step 1: Transcribe audio using Whisper
+            logger.info("📝 Transcribing audio with Whisper...")
+            whisper_service = get_whisper_service()
+            transcription_result = whisper_service.transcribe(
+                audio_path=temp_audio_path,
+                language=None  # Auto-detect
+            )
+            
+            transcribed_text = transcription_result["text"]
+            logger.info(f"✅ Transcription: '{transcribed_text}'")
+            
+            if not transcribed_text.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not transcribe audio. Please ensure clear speech."
+                )
+            
+            # Step 2: Parse reminder details using NLP
+            logger.info("🧠 Parsing reminder details from transcription...")
+            reminder_details = _parse_reminder_from_text(
+                text=transcribed_text,
+                user_id=user_id,
+                priority_override=priority
+            )
+            
+            # Step 3: Create reminder
+            reminder_id = f"reminder_{uuid.uuid4().hex[:12]}"
+            
+            # Parse caregiver IDs if provided
+            caregiver_list = []
+            if caregiver_ids:
+                caregiver_list = [cid.strip() for cid in caregiver_ids.split(",") if cid.strip()]
+            
+            reminder = Reminder(
+                id=reminder_id,
+                user_id=user_id,
+                title=reminder_details["title"],
+                description=reminder_details["description"],
+                scheduled_time=reminder_details["scheduled_time"],
+                priority=ReminderPriority(reminder_details["priority"]),
+                category=reminder_details["category"],
+                recurrence=reminder_details.get("recurrence"),
+                caregiver_ids=caregiver_list,
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+            
+            # Save to database
+            db_service = get_db_service()
+            db_result = await db_service.create_reminder(reminder)
+            
+            logger.info(f"✅ Reminder created from audio: {reminder_id}")
+            
+            return {
+                "status": "success",
+                "message": "Reminder created successfully from audio",
+                "reminder": reminder.dict(),
+                "transcription": transcribed_text,
+                "audio_file": file.filename,
+                "db_status": db_result
+            }
+            
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_audio_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete temp file: {e}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating reminder from audio: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process audio: {str(e)}"
+        )
+
+
 @router.post("/natural-language", response_model=dict)
 async def create_reminder_from_natural_language(command: ReminderCommand):
     """
-    Create reminder from natural language command using NLP.
+    Create reminder from natural language text command using NLP.
     
     Examples:
     - "Remind me to take my tablets after lunch"
@@ -110,29 +376,19 @@ async def create_reminder_from_natural_language(command: ReminderCommand):
     - **audio_path**: Optional audio recording path
     """
     try:
-        # Parse natural language command
-        # TODO: Implement NLP-based command parsing
-        # This would use BERT to extract:
-        # - Action (medication, appointment, meal, etc.)
-        # - Time/date information
-        # - Repetition pattern
-        # - Priority indicators
+        logger.info(f"Parsing natural language command for user {command.user_id}")
         
-        # For now, return a placeholder
-        parsed_reminder = {
-            "user_id": command.user_id,
-            "title": "Extracted from: " + command.command_text,
-            "description": command.command_text,
-            "scheduled_time": datetime.now(),
-            "category": "general",
-            "priority": "medium"
-        }
+        # Parse natural language command
+        parsed_reminder = _parse_reminder_from_text(
+            text=command.command_text,
+            user_id=command.user_id
+        )
         
         logger.info(f"Parsed NL command for user {command.user_id}")
         
         return {
             "status": "success",
-            "message": "Reminder created from natural language",
+            "message": "Reminder parsed from natural language",
             "parsed_reminder": parsed_reminder,
             "original_command": command.command_text
         }
