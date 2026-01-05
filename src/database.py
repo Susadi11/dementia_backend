@@ -34,6 +34,7 @@ class Database:
                 raise ValueError("MONGODB_URI is required")
 
             logger.info("Connecting to MongoDB...")
+            print(f"Connecting to MongoDB Atlas ({db_name})...")
 
             # Create MongoDB client
             cls.client = AsyncIOMotorClient(
@@ -49,14 +50,17 @@ class Database:
             cls.db = cls.client[db_name]
 
             logger.info(f"Successfully connected to MongoDB database: {db_name}")
+            print(f"✅ PASSED: Connected to MongoDB ({db_name})")
 
             return True
 
         except ConnectionFailure as e:
             logger.error(f"Failed to connect to MongoDB: {e}")
+            print(f"❌ FAILED: Could not connect to MongoDB: {e}")
             raise
         except Exception as e:
             logger.error(f"Unexpected error connecting to MongoDB: {e}")
+            print(f"❌ ERROR: Unexpected error connecting to DB: {e}")
             raise
 
     @classmethod
@@ -81,7 +85,7 @@ class Database:
         Returns:
             MongoDB collection object
         """
-        if not cls.db:
+        if cls.db is None:
             raise RuntimeError("Database not connected. Call connect_to_database() first.")
 
         return cls.db[collection_name]
