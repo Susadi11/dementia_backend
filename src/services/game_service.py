@@ -205,6 +205,11 @@ def extract_risk_features(sessions: List[Dict], current_features: Dict, lstm_sco
         slope_acc, slope_rt, std_sac, std_ies
     ]
     
+    logger.info(f"📊 EXTRACTED FEATURES:")
+    logger.info(f"   mean_acc={mean_acc:.3f}, mean_sac={mean_sac:.4f}, mean_ies={mean_ies:.1f}")
+    logger.info(f"   current_acc={current_features.get('accuracy', 0):.3f}, sac={current_features['sac']:.4f}, ies={current_features['ies']:.1f}")
+    logger.info(f"   All 14 features: {features}")
+    
     return np.array([features])
 
 # ============================================================================
@@ -245,25 +250,24 @@ def predict_risk(sessions: List[Dict], current_features: Dict, lstm_score: float
     try:
         probs = risk_model.predict_proba(X)[0]
         
-        # ⚠️ TEMPORARY FIX: Model was trained with inverted labels!
-        # The model predicts LOW for poor performance (should be HIGH)
-        # Swap HIGH and LOW probabilities until model is retrained
-        probs_fixed = np.array([probs[1], probs[0], probs[2]])  # Swap HIGH<->LOW
-        logger.warning("⚠️ TEMP FIX: Inverting HIGH/LOW predictions (model trained with wrong labels)")
+        logger.info(f"🔍 RAW MODEL OUTPUT:")
+        logger.info(f"   Classes: {risk_model.classes_}")
+        logger.info(f"   Probabilities: {probs}")
+        logger.info(f"   Max prob at index: {np.argmax(probs)}")
         
-        # Map probabilities to correct labels (after inversion fix)
-        # probs_fixed[0] = HIGH (was LOW), probs_fixed[1] = LOW (was HIGH), probs_fixed[2] = MEDIUM
+        # Using NEW model - no label swap needed
+        # Model classes are in alphabetical order: ['HIGH', 'LOW', 'MEDIUM'] = [0, 1, 2]
         risk_probability = {
-            "LOW": round(float(probs_fixed[1]), 4),
-            "MEDIUM": round(float(probs_fixed[2]), 4),
-            "HIGH": round(float(probs_fixed[0]), 4)
+            "HIGH": round(float(probs[0]), 4),
+            "LOW": round(float(probs[1]), 4),
+            "MEDIUM": round(float(probs[2]), 4)
         }
         
-        predicted_class = int(np.argmax(probs_fixed))
+        predicted_class = int(np.argmax(probs))
         risk_level = RISK_LABELS[predicted_class]  # Will be HIGH, LOW, or MEDIUM
-        risk_score_0_100 = round(float(probs_fixed[0]) * 100, 2)  # HIGH risk percentage
+        risk_score_0_100 = round(float(probs[0]) * 100, 2)  # HIGH risk percentage
         
-        logger.info(f"✅ PREDICTION (after fix): {risk_level} | Probs: HIGH={probs_fixed[0]:.3f}, LOW={probs_fixed[1]:.3f}, MED={probs_fixed[2]:.3f} | Score: {risk_score_0_100}/100")
+        logger.info(f"✅ FINAL PREDICTION: {risk_level} | HIGH={probs[0]:.3f}, LOW={probs[1]:.3f}, MED={probs[2]:.3f} | Score: {risk_score_0_100}/100")
         
         return {
             "riskProbability": risk_probability,
@@ -292,7 +296,13 @@ async def process_game_session(
     Complete pipeline for processing a game session.
     ASYNC version compatible with Motor.
     """
-    logger.info(f"Processing session {sessionId} for user {userId}")
+    logger.info("=" * 70)
+    logger.info(f"📥 NEW SESSION REQUEST: {sessionId}")
+    logger.info(f"   User: {userId}")
+    logger.info(f"   Trials: {len(trials) if trials else 0}, Summary: {'Yes' if summary else 'No'}")
+    if trials and len(trials) > 0:
+        logger.info(f"   Sample RT (raw): {trials[0].get('rt_raw', 0):.3f}, Correct: {trials[0].get('correct', 0)}")
+    logger.info("=" * 70)
     
     # Step 1: Get motor baseline (ASYNC)
     motor_baseline = await get_motor_baseline(userId)
@@ -368,13 +378,23 @@ async def process_game_session(
         logger.info("Alert created for HIGH risk")
     
     # Return response
-    return {
+    response = {
         "sessionId": sessionId,
         "userId": userId,
         "features": features,
         "prediction": prediction,
         "timestamp": session_doc["timestamp"].isoformat()
     }
+    
+    logger.info("=" * 70)
+    logger.info("🚀 FINAL RESPONSE TO FRONTEND:")
+    logger.info(f"   Risk Level: {prediction['riskLevel']}")
+    logger.info(f"   Risk Score: {prediction['riskScore0_100']}/100")
+    logger.info(f"   Probabilities: HIGH={prediction['riskProbability']['HIGH']}, LOW={prediction['riskProbability']['LOW']}, MED={prediction['riskProbability']['MEDIUM']}")
+    logger.info(f"   Features: accuracy={features.get('accuracy', 0):.2%}, SAC={features.get('sac', 0):.4f}, IES={features.get('ies', 0):.4f}, RT={features.get('rtAdjMedian', 0):.3f}s")
+    logger.info("=" * 70)
+    
+    return response
 
 
 # ============================================================================
