@@ -55,11 +55,28 @@ async def submit_game_session(request: GameSessionRequest):
         trials = None
         if request.trials:
             trials = [t.dict() for t in request.trials]
+            
+            # AUTO-FIX: Convert milliseconds to seconds if RT values are too large
+            # Expected RT: 0.5-3.0 seconds. If RT > 10, assume it's in milliseconds
+            if trials and any(t.get('rt_raw', 0) > 10 for t in trials):
+                logger.warning(f"⚠️ RT values appear to be in milliseconds, converting to seconds")
+                for t in trials:
+                    if t.get('rt_raw', 0) > 10:
+                        t['rt_raw'] = t['rt_raw'] / 1000.0
+                logger.info(f"✓ Converted RT from ms to seconds: {[t['rt_raw'] for t in trials[:3]]}")
         
         # Convert summary to dict if provided
         summary = None
         if request.summary:
             summary = request.summary.dict()
+            
+            # AUTO-FIX: Convert milliseconds to seconds for summary too
+            if summary.get('meanRtRaw', 0) > 10:
+                logger.warning(f"⚠️ Mean RT appears to be in milliseconds ({summary['meanRtRaw']}), converting to seconds")
+                summary['meanRtRaw'] = summary['meanRtRaw'] / 1000.0
+                if summary.get('medianRtRaw'):
+                    summary['medianRtRaw'] = summary['medianRtRaw'] / 1000.0
+                logger.info(f"✓ Converted mean RT: {summary['meanRtRaw']:.3f}s")
         
         # Process session (ASYNC)
         result = await process_game_session(
