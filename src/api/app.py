@@ -35,10 +35,11 @@ from src.models.conversational_ai.model_utils import DementiaPredictor
 # Temporarily disable audio processing due to dependency issues
 # from src.preprocessing.voice_processor import get_voice_processor
 # from src.preprocessing.audio_models import get_db_manager
-from src.routes import healthcheck, conversational_ai, reminder_routes, game_routes, risk_routes
+from src.routes import healthcheck, conversational_ai, reminder_routes, game_routes, risk_routes, websocket_routes
 
 from src.database import Database
 from src.services.session_finalizer import session_finalizer
+from src.features.reminder_system.realtime_engine import RealTimeReminderEngine
 
 # ============================================================================
 # Game Component Imports (Gamified cognitive assessment features)
@@ -73,6 +74,7 @@ app.add_middleware(
 app.include_router(healthcheck.router)
 app.include_router(conversational_ai.router)
 app.include_router(reminder_routes.router)
+app.include_router(websocket_routes.ws_router)  # WebSocket for real-time reminders
 
 # Game component routes
 app.include_router(game_routes.router)
@@ -735,6 +737,15 @@ async def startup_event():
         logger.info("✓ Session finalizer background task started (runs every 60 minutes)")
     except Exception as e:
         logger.warning(f"Session finalizer startup warning: {e}")
+
+    # Start real-time reminder monitoring
+    try:
+        realtime_engine = RealTimeReminderEngine()
+        await realtime_engine.start_engine()
+        app.state.realtime_engine = realtime_engine  # Store for access in routes
+        logger.info("✓ Real-time reminder monitoring started (checks every 30 seconds)")
+    except Exception as e:
+        logger.warning(f"Real-time reminder engine startup warning: {e}")
 
     logger.info("=" * 80)
     logger.info("API ready to serve requests")

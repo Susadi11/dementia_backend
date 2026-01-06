@@ -393,12 +393,19 @@ class RealTimeReminderEngine:
         # Mock implementation for now
         from src.features.reminder_system.reminder_models import ReminderStatus, ReminderPriority
         
+        # Handle scheduled_time - could be string or datetime
+        scheduled_time = reminder_data["scheduled_time"]
+        if isinstance(scheduled_time, str):
+            scheduled_time = datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+        elif not isinstance(scheduled_time, datetime):
+            scheduled_time = datetime.now()  # Fallback
+        
         return Reminder(
             id=reminder_data["id"],
             user_id=reminder_data["user_id"],
             title=reminder_data["title"],
             description=reminder_data.get("description", ""),
-            scheduled_time=datetime.fromisoformat(reminder_data["scheduled_time"]),
+            scheduled_time=scheduled_time,
             priority=ReminderPriority(reminder_data.get("priority", "medium")),
             category=reminder_data.get("category", "general"),
             repeat_pattern=reminder_data.get("repeat_pattern"),

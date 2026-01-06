@@ -36,6 +36,15 @@ from src.features.conversational_ai.nlp.nlp_engine import NLPEngine
 
 logger = logging.getLogger(__name__)
 
+# Try to import BERT parser (optional, falls back to regex)
+try:
+    from src.features.reminder_system.bert_text_parser import get_bert_parser
+    BERT_AVAILABLE = True
+    logger.info("✅ BERT text parser available")
+except ImportError:
+    BERT_AVAILABLE = False
+    logger.info("⚠️ BERT not available, using regex parser")
+
 # Create router
 router = APIRouter(prefix="/api/reminders", tags=["reminders"])
 
@@ -49,6 +58,7 @@ nlp_engine = NLPEngine()
 
 # Database service - initialized lazily
 _db_service = None
+_bert_parser = None
 
 def _parse_reminder_from_text(
     text: str,
@@ -57,6 +67,40 @@ def _parse_reminder_from_text(
 ) -> dict:
     """
     Parse reminder details from natural language text using NLP.
+    
+    Uses BERT-based parser if available, falls back to regex patterns.
+    
+    Extracts:
+    - Title and description
+    - Category (medication, appointment, meal, etc.)
+    - Time/date information
+    - Recurrence pattern
+    - Priority level
+    """
+    # Try BERT parser first (more accurate)
+    if BERT_AVAILABLE:
+        try:
+            global _bert_parser
+            if _bert_parser is None:
+                _bert_parser = get_bert_parser()
+            
+            result = _bert_parser.parse_reminder(text, user_id, priority_override)
+            logger.info(f"✅ BERT parsed: {result['category']} at {result['scheduled_time']}")
+            return result
+        except Exception as e:
+            logger.warning(f"BERT parsing failed, falling back to regex: {e}")
+    
+    # Fallback to regex-based parsing
+    return _parse_reminder_regex(text, user_id, priority_override)
+
+
+def _parse_reminder_regex(
+    text: str,
+    user_id: str,
+    priority_override: Optional[str] = None
+) -> dict:
+    """
+    Regex-based parsing (fallback method).
     
     Extracts:
     - Title and description
@@ -99,65 +143,117 @@ def _parse_reminder_from_text(
     elif any(word in text_lower for word in ["every month", "monthly"]):
         recurrence = "monthly"
     
-    # Extract time information (basic parsing)
-    scheduled_time = datetime.now() + timedelta(hours=1)  # Default: 1 hour from now
+    # Extract DATE information first
+    days_offset = 0
+    now = datetime.now()
     
-    # Look for time patterns like "8 AM", "2:30 PM", "at noon"
+    # Check for relative day references
+    if "tomorrow" in text_lower:
+        days_offset = 1
+    elif "day after tomorrow" in text_lower:
+        days_offset = 2
+    elif "today" in text_lower:
+        days_offset = 0
+    elif "next week" in text_lower:
+        days_offset = 7
+    
+    # Check for specific weekdays
+    weekdays = {
+        'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+        'friday': 4, 'saturday': 5, 'sunday': 6
+    }
+    
+    for day_name, day_num in weekdays.items():
+        if day_name in text_lower:
+            current_weekday = now.weekday()
+            days_until = (day_num - current_weekday) % 7
+            if days_until == 0:  # If it's today, assume next week
+                days_until = 7
+            days_offset = days_until
+            break
+    
+    # Extract TIME information
+    hour = None
+    minute = 0
+    time_found = False
+    
+    # Look for time patterns like "6 PM", "6:00 PM", "6.00 PM", "18:00"
     time_patterns = [
-        r'(\d{1,2})\s*(?::|\.)\s*(\d{2})\s*(am|pm)',  # 2:30 PM
-        r'(\d{1,2})\s*(am|pm)',  # 8 AM
-        r'at\s+(\d{1,2})(?:\s*o\'?clock)?',  # at 8 o'clock
+        (r'(\d{1,2})\s*[:\.]\s*(\d{2})\s*(am|pm|a\.m\.|p\.m\.)', 3),  # 6:00 PM, 6.00 PM
+        (r'(\d{1,2})\s*(am|pm|a\.m\.|p\.m\.)', 2),  # 6 PM, 6 pm
+        (r'(\d{1,2})\s*[:\.]\s*(\d{2})\b', 2),  # 18:00 (24-hour format)
+        (r'at\s+(\d{1,2})(?:\s*o\'?clock)?', 1),  # at 6 o'clock
     ]
     
-    for pattern in time_patterns:
+    for pattern, group_count in time_patterns:
         match = re.search(pattern, text_lower)
         if match:
             try:
-                if len(match.groups()) == 3:  # HH:MM AM/PM
+                if group_count == 3:  # HH:MM AM/PM
                     hour = int(match.group(1))
                     minute = int(match.group(2))
-                    period = match.group(3)
-                    if period == 'pm' and hour < 12:
-                        hour += 12
-                    elif period == 'am' and hour == 12:
-                        hour = 0
-                elif len(match.groups()) == 2:  # HH AM/PM
+                    period = match.group(3).lower().replace('.', '')
+                    if period in ['pm', 'pm']:
+                        if hour < 12:
+                            hour += 12
+                    elif period in ['am', 'am']:
+                        if hour == 12:
+                            hour = 0
+                    time_found = True
+                elif group_count == 2 and match.group(2) in ['am', 'pm', 'a.m.', 'p.m.']:  # HH AM/PM
                     hour = int(match.group(1))
                     minute = 0
-                    period = match.group(2)
-                    if period == 'pm' and hour < 12:
-                        hour += 12
-                    elif period == 'am' and hour == 12:
-                        hour = 0
-                else:  # Just hour
+                    period = match.group(2).lower().replace('.', '')
+                    if period in ['pm', 'pm']:
+                        if hour < 12:
+                            hour += 12
+                    elif period in ['am', 'am']:
+                        if hour == 12:
+                            hour = 0
+                    time_found = True
+                elif group_count == 2:  # 24-hour format HH:MM
+                    hour = int(match.group(1))
+                    minute = int(match.group(2))
+                    time_found = True
+                else:  # Just hour with "at"
                     hour = int(match.group(1))
                     minute = 0
-                
-                # Set the time for today or tomorrow if time has passed
-                scheduled_time = datetime.now().replace(hour=hour, minute=minute, second=0, microsecond=0)
-                if scheduled_time < datetime.now():
-                    scheduled_time += timedelta(days=1)
+                    # Assume PM if hour < 8 (for afternoon/evening reminders)
+                    if hour < 8:
+                        hour += 12
+                    time_found = True
                 break
-            except (ValueError, AttributeError):
+            except (ValueError, AttributeError, IndexError):
                 pass
     
-    # Special time keywords
-    if "noon" in text_lower or "lunch time" in text_lower:
-        scheduled_time = datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
-        if scheduled_time < datetime.now():
+    # Special time keywords (only if no specific time found)
+    if not time_found:
+        if "noon" in text_lower or "lunch time" in text_lower:
+            hour, minute = 12, 0
+            time_found = True
+        elif "morning" in text_lower:
+            hour, minute = 8, 0
+            time_found = True
+        elif "evening" in text_lower:
+            hour, minute = 18, 0
+            time_found = True
+        elif "night" in text_lower or "bedtime" in text_lower:
+            hour, minute = 21, 0
+            time_found = True
+    
+    # Build the scheduled_time
+    if time_found and hour is not None:
+        # Create time for base date + days_offset
+        base_date = now + timedelta(days=days_offset)
+        scheduled_time = base_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        
+        # If no explicit date was mentioned and time has passed today, schedule for tomorrow
+        if days_offset == 0 and scheduled_time < now:
             scheduled_time += timedelta(days=1)
-    elif "morning" in text_lower:
-        scheduled_time = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
-        if scheduled_time < datetime.now():
-            scheduled_time += timedelta(days=1)
-    elif "evening" in text_lower or "dinner" in text_lower:
-        scheduled_time = datetime.now().replace(hour=18, minute=0, second=0, microsecond=0)
-        if scheduled_time < datetime.now():
-            scheduled_time += timedelta(days=1)
-    elif "night" in text_lower or "bedtime" in text_lower:
-        scheduled_time = datetime.now().replace(hour=21, minute=0, second=0, microsecond=0)
-        if scheduled_time < datetime.now():
-            scheduled_time += timedelta(days=1)
+    else:
+        # Default: 1 hour from now
+        scheduled_time = now + timedelta(hours=1)
+        scheduled_time = scheduled_time.replace(second=0, microsecond=0)
     
     # Generate title (extract main action)
     title = text[:50]  # First 50 chars
@@ -507,6 +603,87 @@ async def get_user_reminders(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve reminders: {str(e)}"
+        )
+
+
+@router.get("/user/{user_id}/due-now", response_model=dict)
+async def get_due_reminders_now(user_id: str, time_window_minutes: int = 5):
+    """
+    Get reminders that are due NOW for a user (for polling-based notifications).
+    
+    Mobile apps can call this endpoint every 30-60 seconds to check for due reminders
+    and trigger local alarms/notifications.
+    
+    - **user_id**: User identifier
+    - **time_window_minutes**: Look ahead window in minutes (default: 5)
+    
+    Returns reminders that should trigger an alarm/notification right now.
+    """
+    try:
+        db_service = get_db_service()
+        
+        # Get reminders due within the time window
+        try:
+            due_reminders = await db_service.get_due_reminders(time_window_minutes)
+        except RuntimeError as db_error:
+            logger.error(f"Database not connected: {db_error}")
+            return {
+                "status": "error",
+                "message": "Database not connected",
+                "user_id": user_id,
+                "due_reminders": [],
+                "should_trigger_alarm": False
+            }
+        
+        # Filter for this specific user
+        user_due_reminders = [r for r in due_reminders if r.get("user_id") == user_id]
+        
+        # Check if any are due RIGHT NOW (within 1 minute)
+        now = datetime.now()
+        urgent_reminders = []
+        for reminder in user_due_reminders:
+            scheduled_time = reminder.get("scheduled_time")
+            
+            # Handle both string and datetime objects
+            if isinstance(scheduled_time, str):
+                try:
+                    scheduled_time = datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+                except:
+                    continue  # Skip if can't parse
+            elif not isinstance(scheduled_time, datetime):
+                continue  # Skip if not string or datetime
+            
+            time_diff = (scheduled_time - now).total_seconds() / 60.0  # in minutes
+            
+            # If within 1 minute of scheduled time, it's urgent
+            if -1 <= time_diff <= 1:
+                # Convert datetime to ISO string for JSON response
+                reminder_copy = reminder.copy()
+                if isinstance(reminder_copy.get("scheduled_time"), datetime):
+                    reminder_copy["scheduled_time"] = reminder_copy["scheduled_time"].isoformat()
+                
+                urgent_reminders.append({
+                    **reminder_copy,
+                    "time_until_due_minutes": round(time_diff, 1),
+                    "trigger_alarm": True
+                })
+        
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "current_time": now.isoformat(),
+            "total_due_soon": len(user_due_reminders),
+            "urgent_count": len(urgent_reminders),
+            "should_trigger_alarm": len(urgent_reminders) > 0,
+            "urgent_reminders": urgent_reminders,
+            "upcoming_reminders": user_due_reminders[:5]  # Next 5 upcoming
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting due reminders: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
 
 
