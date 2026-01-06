@@ -1,0 +1,12 @@
+{
+  "model_type": "Voice XGBoost (Text + Audio + BERT)",
+  "features": "11 linguistic + 3 audio (P5,P6,P8) + 768 BERT",
+  "accuracy": 0.8905660377358491,
+  "precision": 0.9348837209302325,
+  "recall": 0.9305555555555556,
+  "f1_score": 0.9327146171693735,
+  "trained_date": "2026-01-06",
+  "train_samples": 1012,
+  "test_samples": 265,
+  "parameters": "All 12: P1-P12"
+}

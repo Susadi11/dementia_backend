@@ -521,7 +521,7 @@ class CaregiverNotifier:
             message += f"Average Cognitive Risk: {summary_data['avg_cognitive_risk']:.2f}\n"
         
         if summary_data.get('confusion_count', 0) > 0:
-            message += f"⚠️ Confusion detected {summary_data['confusion_count']} time(s)\n"
+            message += f"[WARNING] Confusion detected {summary_data['confusion_count']} time(s)\n"
         
         if summary_data.get('highlights'):
             message += "\nHighlights:\n"

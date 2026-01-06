@@ -93,7 +93,7 @@ class DementiaChatbot:
                 enable_linguistic=True,
                 device="cpu"  # Use CPU for NLP to avoid GPU conflicts
             )
-            logger.info("✅ NLP Engine initialized")
+            logger.info("[SUCCESS] NLP Engine initialized")
         except Exception as e:
             logger.warning(f"Failed to initialize NLP Engine: {e}. Using simple prompting.")
             self.nlp_engine = None
@@ -151,7 +151,7 @@ class DementiaChatbot:
             # Set to eval mode
             self.model.eval()
 
-            logger.info("✅ Chatbot model loaded successfully!")
+            logger.info("[SUCCESS] Chatbot model loaded successfully!")
 
         except Exception as e:
             logger.error(f"Error loading model: {e}")

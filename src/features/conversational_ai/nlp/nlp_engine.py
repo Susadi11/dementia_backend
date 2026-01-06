@@ -85,27 +85,27 @@ class NLPEngine:
         logger.info("Initializing NLPEngine components...")
 
         self.text_processor = TextPreprocessor(spacy_model=spacy_model)
-        logger.info("✓ TextPreprocessor initialized")
+        logger.info("[OK] TextPreprocessor initialized")
 
         if enable_semantic:
             self.semantic_analyzer = SemanticAnalyzer(
                 model_name=semantic_model,
                 device=device
             )
-            logger.info("✓ SemanticAnalyzer initialized")
+            logger.info("[OK] SemanticAnalyzer initialized")
         else:
             self.semantic_analyzer = None
 
         if enable_emotion:
             self.sentiment_analyzer = SentimentAnalyzer()
-            logger.info("✓ SentimentAnalyzer initialized")
+            logger.info("[OK] SentimentAnalyzer initialized")
         else:
             self.sentiment_analyzer = None
 
         if enable_linguistic:
             nlp_obj = self.text_processor.nlp if self.text_processor else None
             self.linguistic_analyzer = LinguisticAnalyzer(nlp_model=nlp_obj)
-            logger.info("✓ LinguisticAnalyzer initialized")
+            logger.info("[OK] LinguisticAnalyzer initialized")
         else:
             self.linguistic_analyzer = None
 

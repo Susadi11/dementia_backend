@@ -170,7 +170,7 @@ async def process_text_chat(request: TextQuery) -> ChatResponse:
                     "analysis_details": analysis_result["analysis_details"]
                 }
 
-                logger.info(f"✓ Detection completed: {detection_session_id}, score: {session_raw_score}/36")
+                logger.info(f"[OK] Detection completed: {detection_session_id}, score: {session_raw_score}/36")
 
         except Exception as e:
             logger.warning(f"Detection failed (non-critical): {str(e)}")
@@ -262,17 +262,17 @@ async def process_voice_chat(
 
         try:
             # Step 0: Extract audio features for P5, P6, P8 (pause, tremor, speech rate)
-            logger.info("🎵 Step 0: Extracting audio features (P5, P6, P8)...")
+            logger.info("[AUDIO] Step 0: Extracting audio features (P5, P6, P8)...")
             audio_features = None
             try:
                 audio_features = audio_processor.extract_features_from_file(temp_audio_path)
-                logger.info(f"✅ Audio features: {audio_features}")
+                logger.info(f"[SUCCESS] Audio features: {audio_features}")
             except Exception as e:
                 logger.warning(f"Audio feature extraction failed (non-critical): {str(e)}")
                 # If audio processing fails, use None - detection will use text-only
 
             # Step 1: Transcribe audio using local Whisper
-            logger.info("📝 Step 1: Transcribing audio with Whisper...")
+            logger.info("[TRANSCRIBE] Step 1: Transcribing audio with Whisper...")
             whisper_service = get_whisper_service()
 
             # Sanitize language parameter - Swagger sends "string" as placeholder
@@ -287,7 +287,7 @@ async def process_voice_chat(
             )
 
             transcribed_text = transcription_result["text"]
-            logger.info(f"✅ Transcription: '{transcribed_text[:100]}...'")
+            logger.info(f"[SUCCESS] Transcription: '{transcribed_text[:100]}...'")
 
             if not transcribed_text.strip():
                 raise HTTPException(
@@ -297,7 +297,7 @@ async def process_voice_chat(
 
             # Step 2-4: NLP analysis + Prompt building + LLaMA response
             # (This happens automatically inside the chatbot service)
-            logger.info("🧠 Step 2-4: NLP analysis → Prompt building → LLaMA generation...")
+            logger.info("[GENERATE] Step 2-4: NLP analysis -> Prompt building -> LLaMA generation...")
             chatbot = get_chatbot()
             result = chatbot.generate_response(
                 user_message=transcribed_text,
@@ -316,7 +316,7 @@ async def process_voice_chat(
                     "duration": transcription_result["duration"]
                 }
 
-            logger.info(f"✅ Response generated: '{result['response'][:50]}...'")
+            logger.info(f"[SUCCESS] Response generated: '{result['response'][:50]}...'")
 
             # ==================== AUTOMATIC 12-PARAMETER DETECTION ====================
             detection_result = None
@@ -402,7 +402,7 @@ async def process_voice_chat(
                         "analysis_details": analysis_result["analysis_details"]
                     }
 
-                    logger.info(f"✓ Voice detection completed: {detection_session_id}, score: {session_raw_score}/36")
+                    logger.info(f"[OK] Voice detection completed: {detection_session_id}, score: {session_raw_score}/36")
 
             except Exception as e:
                 logger.warning(f"Detection failed (non-critical): {str(e)}")

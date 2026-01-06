@@ -125,16 +125,16 @@ def extract_and_analyze(text: str) -> Dict[str, Any]:
         # Create recommendations
         recommendations = []
         if risk_level == "high":
-            recommendations.append("⚠️ High dementia risk detected")
+            recommendations.append("[WARNING] High dementia risk detected")
             if features.get('semantic_incoherence', 0) > 0.4:
                 recommendations.append("- Semantic incoherence detected in speech")
             if features.get('repeated_questions', 0) > 0.3:
                 recommendations.append("- Repetitive questioning observed")
         elif risk_level == "moderate":
-            recommendations.append("⚠️ Moderate dementia risk indicators found")
+            recommendations.append("[WARNING] Moderate dementia risk indicators found")
             recommendations.append("- Recommend cognitive assessment")
         else:
-            recommendations.append("✓ Low risk profile detected")
+            recommendations.append("[OK] Low risk profile detected")
             recommendations.append("- Continue regular health monitoring")
 
         return {
@@ -334,9 +334,9 @@ async def predict_dementia(features: Dict[str, float]):
 async def startup_event():
     """Initialize on startup."""
     logger.info("Dementia Detection & Reminder System API starting up...")
-    logger.info("Reminder system: ✓ Ready")
-    logger.info("Text analysis: ✓ Ready" if feature_extractor else "Text analysis: ⚠️ Limited")
-    logger.info("Audio processing: ⚠️ Disabled (Python 3.14 compatibility)")
+    logger.info("Reminder system: [OK] Ready")
+    logger.info("Text analysis: [OK] Ready" if feature_extractor else "Text analysis: [WARNING] Limited")
+    logger.info("Audio processing: [WARNING] Disabled (Python 3.14 compatibility)")
     logger.info("API ready to serve requests")
 
 

@@ -64,7 +64,7 @@ class WhisperService:
                 device=self.device
             )
 
-            logger.info("✅ Whisper model loaded successfully!")
+            logger.info("[SUCCESS] Whisper model loaded successfully!")
 
         except Exception as e:
             # Fallback to CPU if MPS/CUDA fails (common with PyTorch updates on Mac)
@@ -77,7 +77,7 @@ class WhisperService:
                         self.model_size,
                         device=self.device
                     )
-                    logger.info("✅ Whisper model loaded successfully on CPU fallback!")
+                    logger.info("[SUCCESS] Whisper model loaded successfully on CPU fallback!")
                     return
                 except Exception as cpu_error:
                     logger.error(f"Error loading Whisper on CPU fallback: {cpu_error}")
@@ -155,7 +155,7 @@ class WhisperService:
                 ]
             }
 
-            logger.info(f"✅ Transcription complete: '{transcription_result['text'][:50]}...'")
+            logger.info(f"[SUCCESS] Transcription complete: '{transcription_result['text'][:50]}...'")
             return transcription_result
 
         except Exception as e:

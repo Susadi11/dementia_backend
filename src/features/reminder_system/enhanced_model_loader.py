@@ -49,9 +49,9 @@ class EnhancedModelLoader:
                 model_path = self.models_dir / filename
                 if model_path.exists():
                     self.models[model_name] = joblib.load(model_path)
-                    logger.info(f"✅ Loaded enhanced {model_name} model")
+                    logger.info(f"[SUCCESS] Loaded enhanced {model_name} model")
                 else:
-                    logger.warning(f"❌ Enhanced {model_name} model not found at {model_path}")
+                    logger.warning(f"[ERROR] Enhanced {model_name} model not found at {model_path}")
             
             # Load scalers
             scaler_files = {
@@ -65,13 +65,13 @@ class EnhancedModelLoader:
                 scaler_path = self.models_dir / filename
                 if scaler_path.exists():
                     self.scalers[scaler_name] = joblib.load(scaler_path)
-                    logger.info(f"✅ Loaded enhanced {scaler_name} scaler")
+                    logger.info(f"[SUCCESS] Loaded enhanced {scaler_name} scaler")
             
             # Load encoder
             encoder_path = self.models_dir / 'response_classifier_encoder.joblib'
             if encoder_path.exists():
                 self.encoders['response_classifier'] = joblib.load(encoder_path)
-                logger.info(f"✅ Loaded enhanced response_classifier encoder")
+                logger.info(f"[SUCCESS] Loaded enhanced response_classifier encoder")
             
             # Load metadata
             metadata_path = self.models_dir / 'enhanced_training_metadata.json'
@@ -79,10 +79,10 @@ class EnhancedModelLoader:
                 import json
                 with open(metadata_path, 'r') as f:
                     self.metadata = json.load(f)
-                logger.info(f"✅ Loaded enhanced training metadata")
+                logger.info(f"[SUCCESS] Loaded enhanced training metadata")
                 
             logger.info(f"🎉 Enhanced model system loaded successfully!")
-            logger.info(f"📊 Models trained on {self.metadata.get('total_samples', 'unknown')} samples")
+            logger.info(f"[INFO] Models trained on {self.metadata.get('total_samples', 'unknown')} samples")
             
         except Exception as e:
             logger.error(f"Error loading enhanced models: {e}", exc_info=True)

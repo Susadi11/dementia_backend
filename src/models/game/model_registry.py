@@ -48,12 +48,12 @@ def load_lstm_model():
         
         if keras_path.exists():
             model = keras.models.load_model(str(keras_path))
-            logger.info(f"✓ LSTM model loaded from {keras_path}")
+            logger.info(f"[OK] LSTM model loaded from {keras_path}")
         elif h5_path.exists():
             model = keras.models.load_model(str(h5_path))
-            logger.info(f"✓ LSTM model loaded from {h5_path}")
+            logger.info(f"[OK] LSTM model loaded from {h5_path}")
         else:
-            logger.warning("⚠ LSTM model file not found, using dummy model")
+            logger.warning("[WARNING] LSTM model file not found, using dummy model")
             return None
         
         return model
@@ -71,13 +71,13 @@ def load_lstm_scaler():
         scaler_path = LSTM_MODEL_DIR / "lstm_scaler.pkl"
         
         if not scaler_path.exists():
-            logger.warning("⚠ LSTM scaler not found, will skip scaling")
+            logger.warning("[WARNING] LSTM scaler not found, will skip scaling")
             return None
         
         with open(scaler_path, "rb") as f:
             scaler = pickle.load(f)
         
-        logger.info(f"✓ LSTM scaler loaded from {scaler_path}")
+        logger.info(f"[OK] LSTM scaler loaded from {scaler_path}")
         return scaler
         
     except Exception as e:
@@ -96,13 +96,13 @@ def load_risk_classifier():
         model_path = RISK_CLASSIFIER_DIR / "risk_classifier.pkl"
         
         if not model_path.exists():
-            logger.warning("⚠ Risk classifier not found, using dummy classifier")
+            logger.warning("[WARNING] Risk classifier not found, using dummy classifier")
             return None
         
         with open(model_path, "rb") as f:
             model = pickle.load(f)
         
-        logger.info(f"✓ Risk classifier loaded from {model_path}")
+        logger.info(f"[OK] Risk classifier loaded from {model_path}")
         return model
         
     except Exception as e:
@@ -118,13 +118,13 @@ def load_risk_scaler():
         scaler_path = RISK_CLASSIFIER_DIR / "scaler.pkl"
         
         if not scaler_path.exists():
-            logger.warning("⚠ Risk scaler not found, will skip scaling")
+            logger.warning("[WARNING] Risk scaler not found, will skip scaling")
             return None
         
         with open(scaler_path, "rb") as f:
             scaler = pickle.load(f)
         
-        logger.info(f"✓ Risk scaler loaded from {scaler_path}")
+        logger.info(f"[OK] Risk scaler loaded from {scaler_path}")
         return scaler
         
     except Exception as e:
@@ -156,7 +156,7 @@ def load_all_models():
     
     _MODEL_LOADED = True
     logger.info("=" * 60)
-    logger.info("✓ Model loading complete")
+    logger.info("[OK] Model loading complete")
     logger.info("=" * 60)
 
 # ============================================================================
