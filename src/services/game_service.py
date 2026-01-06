@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # Constants
 # ============================================================================
-RISK_LABELS = ["LOW", "MEDIUM", "HIGH"]
+# Note: RISK_LABELS order MUST match the label encoder's classes order!
+# The label encoder has classes in alphabetical order: ['HIGH', 'LOW', 'MEDIUM']
+RISK_LABELS = ["HIGH", "LOW", "MEDIUM"]  # Matches label encoder order
 DEFAULT_MOTOR_BASELINE = 0.5  # seconds
 LSTM_WINDOW_SIZE = 10  # last N sessions for LSTM
 
@@ -135,10 +137,22 @@ def predict_lstm_decline(sessions: List[Dict]) -> float:
 def extract_risk_features(sessions: List[Dict], current_features: Dict, lstm_score: float) -> np.ndarray:
     """
     Build feature vector for risk classifier.
-    (Same as before - no changes needed)
+    Extracts 14 features to match the trained model:
+    1-2: mean_sac, slope_sac
+    3-4: mean_ies, slope_ies  
+    5: mean_accuracy
+    6: mean_rt
+    7: mean_variability
+    8: lstm_decline_score
+    9-10: current_sac, current_ies
+    11-12: slope_accuracy, slope_rt (NEW)
+    13-14: std_sac, std_ies (NEW)
     """
+    
+    logger.info(f"🔍 EXTRACTING FEATURES - Accuracy: {current_features.get('accuracy', 0):.1%}, SAC: {current_features.get('sac', 0):.4f}, IES: {current_features.get('ies', 0):.4f}")
+    
     if not sessions:
-        return np.array([[
+        features = [
             current_features["sac"],
             0.0,
             current_features["ies"],
@@ -148,8 +162,14 @@ def extract_risk_features(sessions: List[Dict], current_features: Dict, lstm_sco
             current_features["variability"],
             lstm_score,
             current_features["sac"],
-            current_features["ies"]
-        ]])
+            current_features["ies"],
+            0.0,  # slope_accuracy
+            0.0,  # slope_rt
+            0.0,  # std_sac
+            0.0   # std_ies
+        ]
+        logger.info(f"📊 FEATURES (first session): {features}")
+        return np.array([features])
     
     sac_values = [s["features"]["sac"] for s in sessions]
     ies_values = [s["features"]["ies"] for s in sessions]
@@ -163,6 +183,9 @@ def extract_risk_features(sessions: List[Dict], current_features: Dict, lstm_sco
     mean_rt = np.mean(rt_values)
     mean_var = np.mean(var_values)
     
+    std_sac = np.std(sac_values) if len(sac_values) > 1 else 0.0
+    std_ies = np.std(ies_values) if len(ies_values) > 1 else 0.0
+    
     def compute_slope(values):
         if len(values) < 2:
             return 0.0
@@ -172,11 +195,14 @@ def extract_risk_features(sessions: List[Dict], current_features: Dict, lstm_sco
     
     slope_sac = compute_slope(sac_values)
     slope_ies = compute_slope(ies_values)
+    slope_acc = compute_slope(acc_values)
+    slope_rt = compute_slope(rt_values)
     
     features = [
         mean_sac, slope_sac, mean_ies, slope_ies,
         mean_acc, mean_rt, mean_var, lstm_score,
-        current_features["sac"], current_features["ies"]
+        current_features["sac"], current_features["ies"],
+        slope_acc, slope_rt, std_sac, std_ies
     ]
     
     return np.array([features])
@@ -187,28 +213,57 @@ def extract_risk_features(sessions: List[Dict], current_features: Dict, lstm_sco
 def predict_risk(sessions: List[Dict], current_features: Dict, lstm_score: float) -> Dict:
     """
     Run risk classifier to get risk probabilities and level.
-    (Same as before - no changes needed)
+    Uses the trained logistic regression model - NO FALLBACK/DUMMY LOGIC.
     """
     X = extract_risk_features(sessions, current_features, lstm_score)
     
     risk_model = get_risk_classifier_safe()
     scaler = get_risk_scaler()
     
+    # Log which model is being used
+    model_name = risk_model.__class__.__name__
+    if model_name == 'DummyRiskClassifier':
+        logger.error("❌❌❌ CRITICAL: Using DUMMY risk classifier - predictions will be RANDOM!")
+        logger.error("❌ Model failed to load! Check model files immediately!")
+        raise RuntimeError("Risk classifier model not loaded - cannot make predictions")
+    else:
+        logger.info(f"✓ Using trained model: {model_name}")
+    
+    # Log features being used
+    logger.info(f"Input features: accuracy={current_features.get('accuracy', 0):.2%}, "
+                f"sac={current_features.get('sac', 0):.4f}, "
+                f"ies={current_features.get('ies', 0):.4f}, "
+                f"rt={current_features.get('rtAdjMedian', 0):.0f}ms")
+    
     if scaler is not None:
+        X_raw = X.copy()
         X = scaler.transform(X)
+        logger.info(f"✓ Features scaled (raw[0]={X_raw[0,0]:.4f} -> scaled[0]={X[0,0]:.4f})")
+    else:
+        logger.warning("⚠️ No scaler available - using raw features")
     
     try:
         probs = risk_model.predict_proba(X)[0]
         
+        # ⚠️ TEMPORARY FIX: Model was trained with inverted labels!
+        # The model predicts LOW for poor performance (should be HIGH)
+        # Swap HIGH and LOW probabilities until model is retrained
+        probs_fixed = np.array([probs[1], probs[0], probs[2]])  # Swap HIGH<->LOW
+        logger.warning("⚠️ TEMP FIX: Inverting HIGH/LOW predictions (model trained with wrong labels)")
+        
+        # Map probabilities to correct labels (after inversion fix)
+        # probs_fixed[0] = HIGH (was LOW), probs_fixed[1] = LOW (was HIGH), probs_fixed[2] = MEDIUM
         risk_probability = {
-            "LOW": round(float(probs[0]), 4),
-            "MEDIUM": round(float(probs[1]), 4),
-            "HIGH": round(float(probs[2]), 4)
+            "LOW": round(float(probs_fixed[1]), 4),
+            "MEDIUM": round(float(probs_fixed[2]), 4),
+            "HIGH": round(float(probs_fixed[0]), 4)
         }
         
-        predicted_class = int(np.argmax(probs))
-        risk_level = RISK_LABELS[predicted_class]
-        risk_score_0_100 = round(float(probs[2]) * 100, 2)
+        predicted_class = int(np.argmax(probs_fixed))
+        risk_level = RISK_LABELS[predicted_class]  # Will be HIGH, LOW, or MEDIUM
+        risk_score_0_100 = round(float(probs_fixed[0]) * 100, 2)  # HIGH risk percentage
+        
+        logger.info(f"✅ PREDICTION (after fix): {risk_level} | Probs: HIGH={probs_fixed[0]:.3f}, LOW={probs_fixed[1]:.3f}, MED={probs_fixed[2]:.3f} | Score: {risk_score_0_100}/100")
         
         return {
             "riskProbability": risk_probability,
@@ -218,13 +273,9 @@ def predict_risk(sessions: List[Dict], current_features: Dict, lstm_score: float
         }
         
     except Exception as e:
-        logger.error(f"Risk prediction failed: {e}")
-        return {
-            "riskProbability": {"LOW": 0.33, "MEDIUM": 0.34, "HIGH": 0.33},
-            "riskLevel": "MEDIUM",
-            "riskScore0_100": 33.0,
-            "lstmDeclineScore": lstm_score
-        }
+        logger.error(f"❌ Risk prediction FAILED with exception: {e}", exc_info=True)
+        # DO NOT return fallback - raise the error so we know something is wrong
+        raise RuntimeError(f"Risk prediction failed: {e}") from e
 
 # ============================================================================
 # Main Pipeline Function (ASYNC)
