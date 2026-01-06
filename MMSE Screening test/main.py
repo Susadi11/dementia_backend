@@ -1,22 +1,17 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 import numpy as np
 import librosa
 import joblib
 import whisper
 import tempfile
 import os
+import re
+import subprocess
+import uuid
+from services.mmse_question_service import process_mmse_question
 
+app = FastAPI(title="AI Dementia Detection API")
 
-app = FastAPI(
-    title="AI Dementia Detection API",
-    description="Late Fusion Dementia Prediction using Audio + Text",
-    version="1.0"
-)
-
-
-
-# Load ML models
-print("Loading models...")
 
 audio_model = joblib.load("models/best_audio_model.pkl")
 audio_scaler = joblib.load("models/audio_scaler.pkl")
@@ -25,16 +20,22 @@ text_model = joblib.load("models/best_text_model.pkl")
 text_tfidf = joblib.load("models/text_tfidf.pkl")
 text_pca = joblib.load("models/text_pca.pkl")
 
-""" label_encoder = joblib.load("models/label_encoder.pkl") """
-
-whisper_model = whisper.load_model("base")
-
-print("Models loaded successfully.")
+whisper_model = whisper.load_model("small")
 
 
-# Audio feature extraction
+def convert_to_wav(input_path: str) -> str:
+    out_path = f"{input_path}_{uuid.uuid4().hex}.wav"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-ac", "1", "-ar", "16000", out_path],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=True
+    )
+    return out_path
+
 def extract_audio_features(path, sr_target=16000):
     y, sr = librosa.load(path, sr=sr_target, mono=True)
+    y = librosa.util.normalize(y)
 
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
     mfcc_delta = librosa.feature.delta(mfcc)
@@ -56,68 +57,71 @@ def extract_audio_features(path, sr_target=16000):
 
     return features.reshape(1, -1)
 
-
-# Whisper transcription
-
 def transcribe_audio(path):
-    result = whisper_model.transcribe(path)
-    return result["text"].lower()
+    result = whisper_model.transcribe(
+        path,
+        language="en",
+        fp16=False,
+        initial_prompt="The patient will say words like ball, car, man, wristwatch, pen."
+    )
+
+    text = result.get("text", "")
+    return text.strip().lower() if text else ""
 
 
-# Late fusion prediction
-def late_fusion_predict(audio_feat, transcript, w_audio=0.6, w_text=0.4):
-    #Audio probability
+
+def late_fusion_predict(audio_feat, transcript):
     audio_feat = audio_scaler.transform(audio_feat)
     audio_prob = audio_model.predict_proba(audio_feat)[0][1]
 
-    #Text probability 
-    tfidf_vec = text_tfidf.transform([transcript]).toarray()
-    text_vec = text_pca.transform(tfidf_vec)
-    text_prob = text_model.predict_proba(text_vec)[0][1]
+      # Short utterance → disable text model
+    if len(transcript.split()) < 5:
+        fused = audio_prob
+    else:
+        tfidf_vec = text_tfidf.transform([transcript]).toarray()
+        text_vec = text_pca.transform(tfidf_vec)
+        text_prob = text_model.predict_proba(text_vec)[0][1]
+        fused = 0.6 * audio_prob + 0.4 * text_prob
 
-    #Fusion
-    fused_prob = w_audio * audio_prob + w_text * text_prob
-    label = "Dementia" if fused_prob >= 0.5 else "Control"
-
-    return {
-        "audio_probability": float(audio_prob),
-        "text_probability": float(text_prob),
-        "fused_probability": float(fused_prob),
-        "prediction": label
-    }
+    return fused >= 0.60 and "Dementia" or "Control", fused
 
 
-#endpoint
+# MMSE endpoint
+
 @app.get("/")
 async def root():
-    return {"message": "Welcome to the AI Dementia Detection API. Use the /predict endpoint to upload a speech recording for dementia prediction."}
-    
-@app.post("/predict")
-async def predict_dementia(file: UploadFile = File(...)):
-    """
-    Upload a speech recording (.wav or .mp3)
-    Returns dementia prediction using late fusion
-    """
+    return {"message": "AI Dementia Detection API is running."}
 
-    # Save temp audio file
+@app.post("/mmse/question")
+async def mmse_question(
+    question_type: str = Form(...),
+    file: UploadFile = File(...),
+    caregiver_is_correct: bool = Form(None)
+):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
         tmp.write(await file.read())
-        temp_path = tmp.name
+        path = tmp.name
 
     try:
-        # Extract audio features
-        audio_feat = extract_audio_features(temp_path)
+        wav_path = convert_to_wav(path)
+        audio_feat = extract_audio_features(wav_path)
+        transcript = transcribe_audio(wav_path)
+        ml_label, ml_prob = late_fusion_predict(audio_feat, transcript)
 
-        # Transcribe speech
-        transcript = transcribe_audio(temp_path)
-
-        # Predict using late fusion
-        result = late_fusion_predict(audio_feat, transcript)
-
+        results, total_score = process_mmse_question(
+        question_type=question_type,
+            transcript=transcript,
+            ml_prediction=ml_label,
+            caregiver_is_correct=caregiver_is_correct
+        )
         return {
+            "question_type": question_type,
             "transcript": transcript,
-            **result
+            "ml_prediction": ml_label,
+            "ml_probability": ml_prob,
+            "results": results,
+            "total_score": total_score
         }
 
     finally:
-        os.remove(temp_path)
+        os.remove(path)
