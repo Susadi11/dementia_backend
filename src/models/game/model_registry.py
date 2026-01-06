@@ -5,6 +5,7 @@ Prevents slow API responses from reloading models per request
 """
 import os
 import pickle
+import joblib
 import numpy as np
 from pathlib import Path
 from typing import Optional, Dict, List
@@ -19,7 +20,8 @@ _MODELS = {
     "lstm_model": None,
     "risk_classifier": None,
     "scaler": None,
-    "lstm_scaler": None
+    "lstm_scaler": None,
+    "label_encoder": None
 }
 
 _MODEL_LOADED = False
@@ -90,17 +92,16 @@ def load_lstm_scaler():
 def load_risk_classifier():
     """
     Load Logistic Regression risk classifier.
-    Expected file: src/models/game/risk_classifier/risk_classifier.pkl
+    Expected file: src/models/game/risk_classifier/logistic_regression_model.pkl
     """
     try:
-        model_path = RISK_CLASSIFIER_DIR / "risk_classifier.pkl"
+        model_path = RISK_CLASSIFIER_DIR / "logistic_regression_model.pkl"
         
         if not model_path.exists():
             logger.warning("⚠ Risk classifier not found, using dummy classifier")
             return None
         
-        with open(model_path, "rb") as f:
-            model = pickle.load(f)
+        model = joblib.load(model_path)
         
         logger.info(f"✓ Risk classifier loaded from {model_path}")
         return model
@@ -112,23 +113,43 @@ def load_risk_classifier():
 def load_risk_scaler():
     """
     Load scaler for risk classifier input features.
-    Expected file: src/models/game/risk_classifier/scaler.pkl
+    Expected file: src/models/game/risk_classifier/feature_scaler.pkl
     """
     try:
-        scaler_path = RISK_CLASSIFIER_DIR / "scaler.pkl"
+        scaler_path = RISK_CLASSIFIER_DIR / "feature_scaler.pkl"
         
         if not scaler_path.exists():
             logger.warning("⚠ Risk scaler not found, will skip scaling")
             return None
         
-        with open(scaler_path, "rb") as f:
-            scaler = pickle.load(f)
+        scaler = joblib.load(scaler_path)
         
         logger.info(f"✓ Risk scaler loaded from {scaler_path}")
         return scaler
         
     except Exception as e:
         logger.error(f"✗ Failed to load risk scaler: {e}")
+        return None
+
+def load_label_encoder():
+    """
+    Load label encoder for risk classifier output labels.
+    Expected file: src/models/game/risk_classifier/label_encoder.pkl
+    """
+    try:
+        encoder_path = RISK_CLASSIFIER_DIR / "label_encoder.pkl"
+        
+        if not encoder_path.exists():
+            logger.warning("⚠ Label encoder not found, using default labels")
+            return None
+        
+        encoder = joblib.load(encoder_path)
+        
+        logger.info(f"✓ Label encoder loaded from {encoder_path}")
+        return encoder
+        
+    except Exception as e:
+        logger.error(f"✗ Failed to load label encoder: {e}")
         return None
 
 # ============================================================================
@@ -146,17 +167,34 @@ def load_all_models():
         return
     
     logger.info("=" * 60)
-    logger.info("Loading ML Models...")
+    logger.info("🔄 LOADING ML MODELS...")
     logger.info("=" * 60)
     
     _MODELS["lstm_model"] = load_lstm_model()
     _MODELS["lstm_scaler"] = load_lstm_scaler()
     _MODELS["risk_classifier"] = load_risk_classifier()
     _MODELS["scaler"] = load_risk_scaler()
+    _MODELS["label_encoder"] = load_label_encoder()
     
     _MODEL_LOADED = True
+    
+    # Log detailed summary
     logger.info("=" * 60)
-    logger.info("✓ Model loading complete")
+    logger.info("📊 MODEL LOADING SUMMARY:")
+    logger.info("-" * 60)
+    logger.info(f"  LSTM Model: {'✅ Loaded' if _MODELS['lstm_model'] is not None else '❌ Failed (will use dummy)'}")
+    logger.info(f"  Risk Classifier: {'✅ LOADED (' + _MODELS['risk_classifier'].__class__.__name__ + ')' if _MODELS['risk_classifier'] is not None else '❌❌❌ FAILED - WILL USE RANDOM!'}")
+    logger.info(f"  Feature Scaler: {'✅ Loaded' if _MODELS['scaler'] is not None else '❌ Failed'}")
+    logger.info(f"  Label Encoder: {'✅ Loaded (classes: ' + str(_MODELS['label_encoder'].classes_ if _MODELS['label_encoder'] else 'None') + ')' if _MODELS['label_encoder'] is not None else '❌ Failed'}")
+    logger.info("-" * 60)
+    
+    if _MODELS['risk_classifier'] is None:
+        logger.error("🚨🚨🚨 CRITICAL: Risk classifier FAILED to load!")
+        logger.error("🚨 Check model file: src/models/game/risk_classifier/logistic_regression_model.pkl")
+        logger.error("🚨 API will use RANDOM predictions until fixed!")
+    else:
+        logger.info(f"✅ Risk classifier ready: {_MODELS['risk_classifier'].__class__.__name__}")
+    
     logger.info("=" * 60)
 
 # ============================================================================
@@ -185,6 +223,12 @@ def get_risk_scaler():
     if not _MODEL_LOADED:
         load_all_models()
     return _MODELS["scaler"]
+
+def get_label_encoder():
+    """Get loaded label encoder"""
+    if not _MODEL_LOADED:
+        load_all_models()
+    return _MODELS["label_encoder"]
 
 # ============================================================================
 # Dummy Models (Fallback for Testing Without Trained Models)

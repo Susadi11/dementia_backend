@@ -284,3 +284,55 @@ async def delete_session(sessionId: str):
     except Exception as e:
         logger.error(f"Error deleting session: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to delete session")
+
+# ============================================================================
+# GET /game/test-model - Test model prediction
+# ============================================================================
+@router.get("/test-model")
+async def test_model_prediction():
+    """
+    Test endpoint to verify the risk classifier model is working.
+    Simulates a low accuracy game (6%) and returns what the model predicts.
+    """
+    from src.models.game.model_registry import get_risk_classifier, get_risk_scaler
+    from src.services.game_service import predict_risk
+    import numpy as np
+    
+    try:
+        # Get model info
+        risk_model = get_risk_classifier()
+        scaler = get_risk_scaler()
+        
+        model_info = {
+            "model_type": risk_model.__class__.__name__ if risk_model else "None",
+            "scaler_type": scaler.__class__.__name__ if scaler else "None",
+            "is_dummy": risk_model.__class__.__name__ == "DummyRiskClassifier" if risk_model else True
+        }
+        
+        # Simulate features from a 6% accuracy game
+        simulated_features = {
+            "accuracy": 0.06,  # 6% accuracy (3/50)
+            "sac": 0.0266,
+            "ies": 15.025,
+            "rtAdjMedian": 2000,
+            "variability": 0.8
+        }
+        
+        # Make prediction
+        prediction = predict_risk([], simulated_features, 0.0)
+        
+        return {
+            "test_scenario": "6% accuracy (3/50 correct)",
+            "model_info": model_info,
+            "simulated_features": simulated_features,
+            "prediction": prediction,
+            "expected": "Should predict HIGH risk for 6% accuracy",
+            "status": "✅ Model working!" if prediction["riskLevel"] == "HIGH" else "⚠️ Unexpected prediction"
+        }
+        
+    except Exception as e:
+        logger.error(f"Model test failed: {e}", exc_info=True)
+        return {
+            "error": str(e),
+            "status": "❌ Model test failed"
+        }
