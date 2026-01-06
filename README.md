@@ -1,4 +1,4 @@
-## 📁 Project Structure
+## Project Structure
 
 ```
 dementia_backend/
@@ -96,7 +96,7 @@ dementia_backend/
         └── helpers.py                # Utility functions
 ```
 
-## 📚 Folder Descriptions
+## Folder Descriptions
 
 | Folder | Purpose |
 |--------|---------|
@@ -107,7 +107,7 @@ dementia_backend/
 | **preprocessing/** | Clean & prepare data |
 | **utils/** | Helper functions and logging |
 
-## 🚀 Getting Started
+## Getting Started
 
 ### 1. Install Dependencies
 ```bash
@@ -125,7 +125,7 @@ The API will be available at: `http://localhost:8000`
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
 
-## 🔗 Current API Endpoints
+## Current API Endpoints
 
 ### Health Check
 - `GET /health` - API status
