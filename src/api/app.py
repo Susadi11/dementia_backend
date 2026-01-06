@@ -16,8 +16,19 @@ import os
 import asyncio
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from project root
+project_root = Path(__file__).parent.parent.parent
+env_file = project_root / ".env"
+load_dotenv(str(env_file))
+
+import sys
+# Verify .env file was loaded
+if os.getenv("MONGODB_URI"):
+    print(f"✓ .env file loaded successfully from {env_file}")
+else:
+    print(f"⚠ Warning: MONGODB_URI not found. Checked: {env_file}")
+    print(f"  File exists: {env_file.exists()}")
+    print(f"  Current working directory: {Path.cwd()}")
 
 from src.features.conversational_ai.feature_extractor import FeatureExtractor
 from src.models.conversational_ai.model_utils import DementiaPredictor

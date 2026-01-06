@@ -16,6 +16,11 @@ Then access:
 import uvicorn
 from pathlib import Path
 import sys
+import io
+
+# Fix Unicode output on Windows
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
 
 # Add src directory to path
 src_path = Path(__file__).parent / "src"

@@ -23,11 +23,39 @@ class ReminderDatabaseService:
     """Enhanced database service for reminder system data persistence."""
 
     def __init__(self):
-        # Get MongoDB collections directly
-        self.reminders_collection = Database.get_collection("reminders")
-        self.interactions_collection = Database.get_collection("reminder_interactions")
-        self.behavior_patterns_collection = Database.get_collection("user_behavior_patterns")
-        self.caregiver_alerts_collection = Database.get_collection("caregiver_alerts")
+        # Collections will be initialized lazily when accessed
+        self._reminders_collection = None
+        self._interactions_collection = None
+        self._behavior_patterns_collection = None
+        self._caregiver_alerts_collection = None
+
+    @property
+    def reminders_collection(self):
+        """Lazy-load reminders collection."""
+        if self._reminders_collection is None:
+            self._reminders_collection = Database.get_collection("reminders")
+        return self._reminders_collection
+
+    @property
+    def interactions_collection(self):
+        """Lazy-load interactions collection."""
+        if self._interactions_collection is None:
+            self._interactions_collection = Database.get_collection("reminder_interactions")
+        return self._interactions_collection
+
+    @property
+    def behavior_patterns_collection(self):
+        """Lazy-load behavior patterns collection."""
+        if self._behavior_patterns_collection is None:
+            self._behavior_patterns_collection = Database.get_collection("user_behavior_patterns")
+        return self._behavior_patterns_collection
+
+    @property
+    def caregiver_alerts_collection(self):
+        """Lazy-load caregiver alerts collection."""
+        if self._caregiver_alerts_collection is None:
+            self._caregiver_alerts_collection = Database.get_collection("caregiver_alerts")
+        return self._caregiver_alerts_collection
 
     # ===== REMINDER MANAGEMENT =====
     
