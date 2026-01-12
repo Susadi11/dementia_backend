@@ -2,7 +2,7 @@
 Reminder Database Service
 
 Enhanced database service specifically for reminder system persistence.
-Handles reminder schedules, interactions, behavior analytics, and caregiver alerts.
+Handles reminder schedules, interactions, behavior analytics, and caregiveralerts.
 """
 
 from typing import Dict, Any, Optional, List
