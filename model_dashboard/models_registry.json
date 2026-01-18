@@ -1,6 +1,6 @@
 {
-  "last_updated": "2026-01-03T16:19:35.354067",
-  "total_models": 5,
+  "last_updated": "2026-01-06T21:51:17.062037",
+  "total_models": 8,
   "models": [
     {
       "id": "confusion_detection",
@@ -230,6 +230,111 @@
         }
       },
       "category": "Conversational AI"
+    },
+    {
+      "id": "dementia_bert_xgboost",
+      "name": "BERT + XGBoost Dementia Detection",
+      "type": "XGBoost Classifier with BERT Embeddings",
+      "algorithm": "XGBoost + BERT-base-uncased",
+      "purpose": "Text-based dementia detection using linguistic features + BERT embeddings",
+      "file_path": "models/dementia_bert_xgboost_model/dementia_xgboost_bert_model.pkl",
+      "training_date": "2026-01-04",
+      "metrics": {
+        "accuracy": 0.8727,
+        "precision": 0.9206,
+        "recall": 0.9206,
+        "f1_score": 0.9206,
+        "roc_auc": 0.8799,
+        "pr_auc": 0.7825
+      },
+      "visualizations": {
+        "confusion_matrix": "visualizations/bert_xgboost_confusion_matrix.png",
+        "roc_curve": "visualizations/bert_xgboost_roc_curve.png",
+        "pr_curve": "visualizations/bert_xgboost_pr_curve.png",
+        "metrics_chart": "visualizations/bert_xgboost_metrics.png"
+      },
+      "category": "Conversational AI"
+    },
+    {
+      "id": "dementia_voice_xgboost",
+      "name": "Voice XGBoost Dementia Detection",
+      "type": "XGBoost Classifier with Audio Features",
+      "algorithm": "XGBoost + Audio Signal Processing",
+      "purpose": "Multi-modal dementia detection using text + audio + BERT features",
+      "file_path": "models/dementia_voice_model_full/dementia_voice_xgboost_model.pkl",
+      "training_date": "2026-01-06",
+      "metrics": {
+        "accuracy": 0.8906,
+        "precision": 0.9349,
+        "recall": 0.9306,
+        "f1_score": 0.9327,
+        "roc_auc": 0.8967,
+        "pr_auc": 0.7947
+      },
+      "visualizations": {
+        "confusion_matrix": "visualizations/voice_xgboost_confusion_matrix.png",
+        "roc_curve": "visualizations/voice_xgboost_roc_curve.png",
+        "pr_curve": "visualizations/voice_xgboost_pr_curve.png",
+        "metrics_chart": "visualizations/voice_xgboost_metrics.png"
+      },
+      "category": "Conversational AI"
+    },
+    {
+      "id": "lstm_temporal_analysis",
+      "name": "LSTM Temporal Trend Analysis",
+      "type": "LSTM Neural Network (Sequence Model)",
+      "algorithm": "LSTM (Long Short-Term Memory)",
+      "purpose": "Predicts cognitive decline trend by analyzing temporal patterns across game sessions",
+      "file_path": "src/models/game/lstm_model/model_v1.keras",
+      "file_size_mb": 0.01,
+      "training_date": "2026-01",
+      "architecture": {
+        "model_type": "Sequential LSTM",
+        "input_shape": "(timesteps, 5)",
+        "lstm_units": 64,
+        "dropout": 0.2,
+        "output": "Single regression value (decline score 0-1)"
+      },
+      "input_features": [
+        "Speed-Accuracy Composite (SAC)",
+        "Inverse Efficiency Score (IES)",
+        "Accuracy",
+        "Adjusted Median Reaction Time",
+        "Response Variability"
+      ],
+      "dataset_info": {
+        "window_size": 10,
+        "description": "Analyzes last 10 game sessions per user",
+        "temporal_analysis": true,
+        "session_types": ["Whack-a-mole Game", "Memory Game", "Cognitive Tasks"]
+      },
+      "metrics": {
+        "accuracy": 0.8567,
+        "r2_score": 0.8567,
+        "mse": 0.0234,
+        "rmse": 0.1530,
+        "mae": 0.1120,
+        "val_loss": 0.0298,
+        "training_epochs": 100,
+        "early_stopping_epoch": 87,
+        "batch_size": 32,
+        "optimizer": "Adam",
+        "learning_rate": 0.001,
+        "note": "Regression metrics - R² score represents prediction accuracy (0-1)"
+      },
+      "performance": {
+        "output_range": "0.0 - 1.0 (decline score)",
+        "interpretation": {
+          "0.0-0.2": "Minimal decline - stable cognitive performance",
+          "0.2-0.4": "Mild decline - slight deterioration trend",
+          "0.4-0.6": "Moderate decline - noticeable performance drop",
+          "0.6-0.8": "Significant decline - concerning trend",
+          "0.8-1.0": "Severe decline - urgent assessment needed"
+        },
+        "temporal_sensitivity": "Detects subtle changes over 10-session window",
+        "use_case": "Early warning system for cognitive decline trajectory"
+      },
+      "category": "Game"
     }
   ]
 }

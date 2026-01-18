@@ -6,6 +6,7 @@ Combines conversational AI + gamified cognitive assessment for comprehensive dem
 
 from fastapi import FastAPI, HTTPException, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Any
 from datetime import datetime
@@ -24,9 +25,9 @@ load_dotenv(str(env_file))
 import sys
 # Verify .env file was loaded
 if os.getenv("MONGODB_URI"):
-    print(f"✓ .env file loaded successfully from {env_file}")
+    print(f"[INFO] .env file loaded successfully from {env_file}")
 else:
-    print(f"⚠ Warning: MONGODB_URI not found. Checked: {env_file}")
+    print(f"[WARNING] MONGODB_URI not found. Checked: {env_file}")
     print(f"  File exists: {env_file.exists()}")
     print(f"  Current working directory: {Path.cwd()}")
 
@@ -48,7 +49,10 @@ from src.features.reminder_system.realtime_engine import RealTimeReminderEngine
 from src.models.game.model_registry import load_all_models
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(levelname)s] %(name)s: %(message)s'
+)
 logger = logging.getLogger('dementia_api')
 
 # Initialize FastAPI app
@@ -70,7 +74,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static files for model dashboard
+dashboard_path = Path(__file__).parent.parent.parent / "model_dashboard"
+if dashboard_path.exists():
+    app.mount("/dashboard", StaticFiles(directory=str(dashboard_path), html=True), name="dashboard")
+    logger.info(f"[INFO] Model dashboard mounted at /dashboard from {dashboard_path}")
+else:
+    logger.warning(f"[WARNING] Model dashboard directory not found: {dashboard_path}")
 
+# Include routers
 app.include_router(healthcheck.router)
 app.include_router(conversational_ai.router)
 app.include_router(reminder_routes.router)
@@ -219,7 +231,7 @@ def extract_and_analyze(text: str, audio_path: Optional[str] = None) -> Dict[str
             recommendations.append("Moderate dementia risk indicators found")
             recommendations.append("- Recommend cognitive assessment")
         else:
-            recommendations.append("✓ Low risk profile detected")
+            recommendations.append("Low risk profile detected")
             recommendations.append("- Continue regular health monitoring")
 
         return {
@@ -283,6 +295,9 @@ async def root():
             "risk": [
                 "/risk/predict/{userId}",
                 "/risk/history/{userId}"
+            ],
+            "dashboard": [
+                "/dashboard - Model Dashboard UI"
             ]
         }
     }
@@ -619,16 +634,16 @@ async def analyze_audio(
 
         recommendations = []
         if risk_level == "high":
-            recommendations.append("⚠️ High dementia risk detected")
+            recommendations.append("[WARNING] High dementia risk detected")
             if features.get('semantic_incoherence', 0) > 0.4:
                 recommendations.append("- Semantic incoherence detected in speech")
             if features.get('repeated_questions', 0) > 0.3:
                 recommendations.append("- Repetitive questioning observed")
         elif risk_level == "moderate":
-            recommendations.append("⚠️ Moderate dementia risk indicators found")
+            recommendations.append("[WARNING] Moderate dementia risk indicators found")
             recommendations.append("- Recommend cognitive assessment")
         else:
-            recommendations.append("✓ Low risk profile detected")
+            recommendations.append("[OK] Low risk profile detected")
 
         db_manager = get_db_manager()
         audio_record = db_manager.get_session_audio(user_id, session_id)
@@ -713,20 +728,20 @@ async def startup_event():
         await Database.connect_to_database()
         # Create indexes for better performance
         await Database.create_indexes()
-        logger.info("✓ MongoDB connected (conversational AI collections)")
+        logger.info("[SUCCESS] MongoDB connected (conversational AI collections)")
     except Exception as e:
         logger.error(f"MongoDB connection failed: {e}")
         logger.warning("API will continue without database connection")
 
     try:
         await create_game_indexes()
-        logger.info("✓ Game component indexes created")
+        logger.info("[SUCCESS] Game component indexes created")
     except Exception as e:
         logger.warning(f"Game index creation warning: {e}")
-    
+
     try:
         load_all_models()
-        logger.info("✓ Game ML models loaded")
+        logger.info("[SUCCESS] Game ML models loaded")
     except Exception as e:
         logger.warning(f"Game model loading warning: {e}")
 
@@ -734,7 +749,7 @@ async def startup_event():
     try:
         # Run finalization check every hour
         asyncio.create_task(session_finalizer.start_background_task(interval_minutes=60))
-        logger.info("✓ Session finalizer background task started (runs every 60 minutes)")
+        logger.info("[SUCCESS] Session finalizer background task started (runs every 60 minutes)")
     except Exception as e:
         logger.warning(f"Session finalizer startup warning: {e}")
 
@@ -768,7 +783,7 @@ async def create_game_indexes():
         # calibrations indexes
         calibrations = Database.get_collection("calibrations")
         await calibrations.create_index([("userId", 1), ("calibrationDate", -1)])
-        
+
         # risk_predictions indexes
         risk_predictions = Database.get_collection("risk_predictions")
         await risk_predictions.create_index([("userId", 1), ("created_at", -1)])
@@ -777,7 +792,7 @@ async def create_game_indexes():
         alerts = Database.get_collection("alerts")
         await alerts.create_index([("userId", 1), ("timestamp", -1)])
 
-        logger.info("✓ Game indexes created successfully")
+        logger.info("[SUCCESS] Game indexes created successfully")
 
     except Exception as e:
         logger.warning(f"Error creating game indexes: {e}")
@@ -793,14 +808,14 @@ async def shutdown_event():
     # Stop session finalizer background task
     try:
         session_finalizer.stop_background_task()
-        logger.info("Session finalizer stopped")
+        logger.info("[INFO] Session finalizer stopped")
     except Exception as e:
         logger.warning(f"Error stopping session finalizer: {e}")
 
     # Close MongoDB connection
     await Database.close_database_connection()
 
-    logger.info("Shutdown complete")
+    logger.info("[INFO] Shutdown complete")
 
 
 if __name__ == "__main__":

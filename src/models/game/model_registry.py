@@ -50,12 +50,12 @@ def load_lstm_model():
         
         if keras_path.exists():
             model = keras.models.load_model(str(keras_path))
-            logger.info(f"✓ LSTM model loaded from {keras_path}")
+            logger.info(f"[OK] LSTM model loaded from {keras_path}")
         elif h5_path.exists():
             model = keras.models.load_model(str(h5_path))
-            logger.info(f"✓ LSTM model loaded from {h5_path}")
+            logger.info(f"[OK] LSTM model loaded from {h5_path}")
         else:
-            logger.warning("⚠ LSTM model file not found, using dummy model")
+            logger.warning("[WARNING] LSTM model file not found, using dummy model")
             return None
         
         return model
@@ -73,13 +73,13 @@ def load_lstm_scaler():
         scaler_path = LSTM_MODEL_DIR / "lstm_scaler.pkl"
         
         if not scaler_path.exists():
-            logger.warning("⚠ LSTM scaler not found, will skip scaling")
+            logger.warning("[WARNING] LSTM scaler not found, will skip scaling")
             return None
         
         with open(scaler_path, "rb") as f:
             scaler = pickle.load(f)
         
-        logger.info(f"✓ LSTM scaler loaded from {scaler_path}")
+        logger.info(f"[OK] LSTM scaler loaded from {scaler_path}")
         return scaler
         
     except Exception as e:
@@ -98,12 +98,12 @@ def load_risk_classifier():
         model_path = RISK_CLASSIFIER_DIR / "logistic_regression_model.pkl"
         
         if not model_path.exists():
-            logger.warning("⚠ Risk classifier not found, using dummy classifier")
+            logger.warning("[WARNING] Risk classifier not found, using dummy classifier")
             return None
         
         model = joblib.load(model_path)
         
-        logger.info(f"✓ Risk classifier loaded from {model_path}")
+        logger.info(f"[OK] Risk classifier loaded from {model_path}")
         return model
         
     except Exception as e:
@@ -119,12 +119,12 @@ def load_risk_scaler():
         scaler_path = RISK_CLASSIFIER_DIR / "feature_scaler.pkl"
         
         if not scaler_path.exists():
-            logger.warning("⚠ Risk scaler not found, will skip scaling")
+            logger.warning("[WARNING] Risk scaler not found, will skip scaling")
             return None
         
         scaler = joblib.load(scaler_path)
         
-        logger.info(f"✓ Risk scaler loaded from {scaler_path}")
+        logger.info(f"[OK] Risk scaler loaded from {scaler_path}")
         return scaler
         
     except Exception as e:
@@ -180,21 +180,21 @@ def load_all_models():
     
     # Log detailed summary
     logger.info("=" * 60)
-    logger.info("📊 MODEL LOADING SUMMARY:")
+    logger.info("MODEL LOADING SUMMARY:")
     logger.info("-" * 60)
-    logger.info(f"  LSTM Model: {'✅ Loaded' if _MODELS['lstm_model'] is not None else '❌ Failed (will use dummy)'}")
-    logger.info(f"  Risk Classifier: {'✅ LOADED (' + _MODELS['risk_classifier'].__class__.__name__ + ')' if _MODELS['risk_classifier'] is not None else '❌❌❌ FAILED - WILL USE RANDOM!'}")
-    logger.info(f"  Feature Scaler: {'✅ Loaded' if _MODELS['scaler'] is not None else '❌ Failed'}")
-    logger.info(f"  Label Encoder: {'✅ Loaded (classes: ' + str(_MODELS['label_encoder'].classes_ if _MODELS['label_encoder'] else 'None') + ')' if _MODELS['label_encoder'] is not None else '❌ Failed'}")
+    logger.info(f"  LSTM Model: {'[OK] Loaded' if _MODELS['lstm_model'] is not None else '[WARN] Failed (will use dummy)'}")
+    logger.info(f"  Risk Classifier: {'[OK] Loaded (' + _MODELS['risk_classifier'].__class__.__name__ + ')' if _MODELS['risk_classifier'] is not None else '[ERROR] FAILED - WILL USE RANDOM!'}")
+    logger.info(f"  Feature Scaler: {'[OK] Loaded' if _MODELS['scaler'] is not None else '[WARN] Failed'}")
+    logger.info(f"  Label Encoder: {'[OK] Loaded (classes: ' + str(_MODELS['label_encoder'].classes_ if _MODELS['label_encoder'] else 'None') + ')' if _MODELS['label_encoder'] is not None else '[WARN] Failed'}")
     logger.info("-" * 60)
-    
+
     if _MODELS['risk_classifier'] is None:
-        logger.error("🚨🚨🚨 CRITICAL: Risk classifier FAILED to load!")
-        logger.error("🚨 Check model file: src/models/game/risk_classifier/logistic_regression_model.pkl")
-        logger.error("🚨 API will use RANDOM predictions until fixed!")
+        logger.error("[CRITICAL] Risk classifier FAILED to load!")
+        logger.error("Check model file: src/models/game/risk_classifier/logistic_regression_model.pkl")
+        logger.error("API will use RANDOM predictions until fixed!")
     else:
-        logger.info(f"✅ Risk classifier ready: {_MODELS['risk_classifier'].__class__.__name__}")
-    
+        logger.info(f"[OK] Risk classifier ready: {_MODELS['risk_classifier'].__class__.__name__}")
+
     logger.info("=" * 60)
 
 # ============================================================================

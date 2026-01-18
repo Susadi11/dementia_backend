@@ -46,15 +46,15 @@ class PittBasedReminderAnalyzer:
         if use_enhanced_models:
             try:
                 self.enhanced_models = EnhancedModelLoader()
-                logger.info("✅ Enhanced models with Pitt Corpus integration loaded")
+                logger.info("[SUCCESS] Enhanced models with Pitt Corpus integration loaded")
                 
                 # Log model info
                 model_info = self.enhanced_models.get_model_info()
-                logger.info(f"📊 Models trained on {model_info['total_samples']} samples")
+                logger.info(f"[INFO] Models trained on {model_info['total_samples']} samples")
                 logger.info(f"🏆 Models available: {', '.join(model_info['models_loaded'])}")
                 
             except Exception as e:
-                logger.error(f"❌ Failed to load enhanced models: {e}")
+                logger.error(f"[ERROR] Failed to load enhanced models: {e}")
                 self.enhanced_models = None
                 use_enhanced_models = False
                 
@@ -186,7 +186,7 @@ class PittBasedReminderAnalyzer:
                     
                     model_confidence = float(np.mean([confusion_conf, risk_conf, caregiver_conf, response_conf]))
                     
-                    logger.info(f"✅ Enhanced model predictions: confusion={confusion_pred}, risk={risk_pred}, caregiver={caregiver_pred}")
+                    logger.info(f"[SUCCESS] Enhanced model predictions: confusion={confusion_pred}, risk={risk_pred}, caregiver={caregiver_pred}")
                     
                 except Exception as e:
                     logger.warning(f"Enhanced model prediction failed: {e}")

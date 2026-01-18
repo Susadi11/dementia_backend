@@ -477,7 +477,7 @@ class WeeklyReportGenerator:
         # Completion rate recommendations
         if stats['completion_rate'] < 0.6:
             recommendations.append(
-                "⚠️ Low completion rate detected. Consider adjusting reminder frequency and timing."
+                "[WARNING] Low completion rate detected. Consider adjusting reminder frequency and timing."
             )
         
         # Cognitive risk recommendations
@@ -487,7 +487,7 @@ class WeeklyReportGenerator:
             )
         elif stats['avg_cognitive_risk'] > 0.5:
             recommendations.append(
-                "⚠️ Elevated cognitive risk. Schedule follow-up with healthcare provider."
+                "[WARNING] Elevated cognitive risk. Schedule follow-up with healthcare provider."
             )
         
         # Trend recommendations
@@ -497,7 +497,7 @@ class WeeklyReportGenerator:
             )
         elif risk_trend == "improving":
             recommendations.append(
-                "📈 Cognitive performance improving. Continue current care plan."
+                " Cognitive performance improving. Continue current care plan."
             )
         
         # Confusion recommendations
@@ -516,7 +516,7 @@ class WeeklyReportGenerator:
         if stats['best_hours']:
             best_hours_str = ", ".join(f"{h}:00" for h in stats['best_hours'])
             recommendations.append(
-                f"✅ Best performance at {best_hours_str}. Schedule important reminders during these hours."
+                f"[SUCCESS] Best performance at {best_hours_str}. Schedule important reminders during these hours."
             )
         
         # Alert recommendations
@@ -534,7 +534,7 @@ class WeeklyReportGenerator:
         
         if not recommendations:
             recommendations.append(
-                "✅ Patient performance is stable. Continue current monitoring schedule."
+                "[SUCCESS] Patient performance is stable. Continue current monitoring schedule."
             )
         
         return recommendations
