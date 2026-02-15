@@ -36,7 +36,7 @@ from src.models.conversational_ai.model_utils import DementiaPredictor
 # Temporarily disable audio processing due to dependency issues
 # from src.preprocessing.voice_processor import get_voice_processor
 # from src.preprocessing.audio_models import get_db_manager
-from src.routes import healthcheck, conversational_ai, reminder_routes, game_routes, risk_routes, websocket_routes
+from src.routes import healthcheck, conversational_ai, reminder_routes, game_routes, risk_routes, websocket_routes, caregiver_routes, user_routes
 
 from src.database import Database
 from src.services.session_finalizer import session_finalizer
@@ -91,6 +91,12 @@ app.include_router(websocket_routes.ws_router)  # WebSocket for real-time remind
 # Game component routes
 app.include_router(game_routes.router)
 app.include_router(risk_routes.router)
+
+# Caregiver authentication routes
+app.include_router(caregiver_routes.router)
+
+# User/Patient authentication routes
+app.include_router(user_routes.router)
 
 # Initialize components
 feature_extractor = FeatureExtractor()
