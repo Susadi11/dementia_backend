@@ -25,11 +25,16 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Paths
 VISUALIZATIONS_DIR = PROJECT_ROOT / "model_dashboard" / "visualizations"
-REGISTRY_FILE = PROJECT_ROOT / "model_dashboard" / "models_registry.json"
+REGISTRY_FILE = PROJECT_ROOT / "models" / "models_registry.json"
 
-# Model paths
-BERT_MODEL_DIR = PROJECT_ROOT / "models" / "dementia_bert_xgboost_model"
-VOICE_MODEL_DIR = PROJECT_ROOT / "models" / "dementia_voice_model_full"
+# Model paths - Now using Hugging Face models
+# Models are available at:
+# - https://huggingface.co/susadi/dementia_bert_xgboost_model
+# - https://huggingface.co/susadi/dementia_voice_model_full
+# Note: This script uses local metadata files for visualization generation
+# The actual models are hosted on Hugging Face and can be loaded using huggingface_hub
+BERT_MODEL_DIR = PROJECT_ROOT / "models" / "dementia_bert_xgboost_model"  # Local metadata only
+VOICE_MODEL_DIR = PROJECT_ROOT / "models" / "dementia_voice_model_full"  # Local metadata only
 
 # Create visualizations directory
 VISUALIZATIONS_DIR.mkdir(parents=True, exist_ok=True)
@@ -365,7 +370,9 @@ def update_registry(bert_viz, voice_viz):
             "type": "XGBoost Classifier with BERT Embeddings",
             "algorithm": "XGBoost + BERT-base-uncased",
             "purpose": "Text-based dementia detection using linguistic features + BERT embeddings",
-            "file_path": "models/dementia_bert_xgboost_model/dementia_xgboost_bert_model.pkl",
+            "file_path": "susadi/dementia_bert_xgboost_model",
+            "model_source": "huggingface",
+            "huggingface_url": "https://huggingface.co/susadi/dementia_bert_xgboost_model",
             "training_date": "2026-01-04",
             "metrics": {
                 "accuracy": 0.8727,
@@ -402,7 +409,9 @@ def update_registry(bert_viz, voice_viz):
             "type": "XGBoost Classifier with Audio Features",
             "algorithm": "XGBoost + Audio Signal Processing",
             "purpose": "Multi-modal dementia detection using text + audio + BERT features",
-            "file_path": "models/dementia_voice_model_full/dementia_voice_xgboost_model.pkl",
+            "file_path": "susadi/dementia_voice_model_full",
+            "model_source": "huggingface",
+            "huggingface_url": "https://huggingface.co/susadi/dementia_voice_model_full",
             "training_date": "2026-01-06",
             "metrics": {
                 "accuracy": 0.8906,

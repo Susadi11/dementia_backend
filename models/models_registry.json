@@ -237,7 +237,9 @@
       "type": "XGBoost Classifier with BERT Embeddings",
       "algorithm": "XGBoost + BERT-base-uncased",
       "purpose": "Text-based dementia detection using linguistic features + BERT embeddings",
-      "file_path": "models/dementia_bert_xgboost_model/dementia_xgboost_bert_model.pkl",
+      "file_path": "susadi/dementia_bert_xgboost_model",
+      "model_source": "huggingface",
+      "huggingface_url": "https://huggingface.co/susadi/dementia_bert_xgboost_model",
       "training_date": "2026-01-04",
       "metrics": {
         "accuracy": 0.8727,
@@ -261,7 +263,9 @@
       "type": "XGBoost Classifier with Audio Features",
       "algorithm": "XGBoost + Audio Signal Processing",
       "purpose": "Multi-modal dementia detection using text + audio + BERT features",
-      "file_path": "models/dementia_voice_model_full/dementia_voice_xgboost_model.pkl",
+      "file_path": "susadi/dementia_voice_model_full",
+      "model_source": "huggingface",
+      "huggingface_url": "https://huggingface.co/susadi/dementia_voice_model_full",
       "training_date": "2026-01-06",
       "metrics": {
         "accuracy": 0.8906,

@@ -17,6 +17,9 @@ from datetime import datetime
 # Import NLP Engine for intelligent context detection
 from src.features.conversational_ai.nlp.nlp_engine import NLPEngine
 
+# Import ModelLoader for loading models from registry
+from src.utils.model_loader import get_model_loader
+
 import logging
 import transformers.pytorch_utils
 import transformers.generation.utils
@@ -59,13 +62,25 @@ class DementiaChatbot:
         Initialize the chatbot with fine-tuned model.
 
         Args:
-            base_model_name: HuggingFace model ID for base LLaMA model (defaults to env var LLAMA_BASE_MODEL)
-            lora_adapter_path: HuggingFace model ID or local path to LoRA adapter (defaults to env var LLAMA_LORA_ADAPTER)
+            base_model_name: HuggingFace model ID for base LLaMA model (defaults to env var LLAMA_BASE_MODEL or registry)
+            lora_adapter_path: HuggingFace model ID or local path to LoRA adapter (defaults to env var LLAMA_LORA_ADAPTER or registry)
             device: Device to run on ('cuda', 'mps', or 'cpu')
         """
-        # Read from environment variables with fallbacks
-        self.base_model_name = base_model_name or os.getenv("LLAMA_BASE_MODEL", "meta-llama/Llama-3.2-3B-Instruct")
-        self.lora_adapter_path = lora_adapter_path or os.getenv("LLAMA_LORA_ADAPTER", "susadi/llama-3.2-3b-dementia-care")
+        # Try to load from model registry first, then env vars, then hardcoded defaults
+        loader = get_model_loader()
+        llama_model_info = loader.get_model_info("llama_3_2_3b_dementia_care")
+
+        # Get base model and adapter from registry or fallbacks
+        if llama_model_info and llama_model_info.get("model_source") == "huggingface":
+            registry_base_model = llama_model_info.get("base_model", "meta-llama/Llama-3.2-3B-Instruct")
+            registry_adapter = llama_model_info.get("lora_adapter", "susadi/llama-3.2-3b-dementia-care")
+        else:
+            registry_base_model = "meta-llama/Llama-3.2-3B-Instruct"
+            registry_adapter = "susadi/llama-3.2-3b-dementia-care"
+
+        # Priority: passed args > env vars > registry > hardcoded defaults
+        self.base_model_name = base_model_name or os.getenv("LLAMA_BASE_MODEL", registry_base_model)
+        self.lora_adapter_path = lora_adapter_path or os.getenv("LLAMA_LORA_ADAPTER", registry_adapter)
 
         # Auto-detect device
         if device is None:

@@ -311,7 +311,7 @@ class ModelRegistryScanner:
         print(f"💾 Registry saved to: {output_path}")
 
         # Also copy to model_dashboard folder for web viewing
-        dashboard_path = output_path.parent / "model_dashboard" / "models_registry.json"
+        dashboard_path = output_path.parent / "models" / "models_registry.json"
         if dashboard_path.parent.exists():
             import shutil
             shutil.copy(output_path, dashboard_path)
