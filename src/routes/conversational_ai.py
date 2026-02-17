@@ -4,12 +4,14 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 import logging
 
-from src.services.chatbot_service import get_chatbot
-from src.services.whisper_service import get_whisper_service
-from src.services.scoring_engine import ScoringEngine
-from src.services.audio_processor import audio_processor
-from src.services.risk_calculator import WeeklyRiskCalculator
-from src.services.session_finalizer import session_finalizer
+from src.services.chatbot import (
+    get_chatbot,
+    get_whisper_service,
+    ScoringEngine,
+    audio_processor,
+    WeeklyRiskCalculator,
+    session_finalizer
+)
 from src.models.detection_session import (
     DetectionSessionDB,
     get_time_window_and_session
@@ -742,7 +744,7 @@ async def get_active_detection_sessions(user_id: Optional[str] = None) -> Dict[s
     """
     try:
         db = Database.db
-        collection = db["detection_sessions"]
+        collection = db["chat_detection_sessions"]
 
         # Build query
         query = {"status": "active"}

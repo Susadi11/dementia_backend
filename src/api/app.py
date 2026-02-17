@@ -39,7 +39,7 @@ from src.models.conversational_ai.model_utils import DementiaPredictor
 from src.routes import healthcheck, conversational_ai, reminder_routes, game_routes, risk_routes, websocket_routes, caregiver_routes, user_routes
 
 from src.database import Database
-from src.services.session_finalizer import session_finalizer
+from src.services.chatbot import session_finalizer
 from src.features.reminder_system.realtime_engine import RealTimeReminderEngine
 
 # ============================================================================
@@ -790,7 +790,7 @@ async def create_game_indexes():
         calibrations = Database.get_collection("calibrations")
         await calibrations.create_index([("userId", 1), ("calibrationDate", -1)])
 
-        # risk_predictions indexes
+        # risk_predictions indexes (for game/MMSE)
         risk_predictions = Database.get_collection("risk_predictions")
         await risk_predictions.create_index([("userId", 1), ("created_at", -1)])
 

@@ -12,10 +12,7 @@ import logging
 import uuid
 
 from src.database import Database
-from src.services.scoring_engine import ScoringEngine
-from src.services.risk_calculator import WeeklyRiskCalculator
-from src.services.session_finalizer import session_finalizer
-from src.services.audio_processor import audio_processor
+from src.services.chatbot import ScoringEngine, WeeklyRiskCalculator, session_finalizer, audio_processor
 from src.models.detection_session import (
     DetectionSessionModel,
     DetectionSessionDB,
@@ -454,7 +451,7 @@ async def get_active_sessions(user_id: Optional[str] = None):
     """
     try:
         db = Database.db
-        collection = db["detection_sessions"]
+        collection = db["chat_detection_sessions"]
 
         # Build query
         query = {"status": "active"}

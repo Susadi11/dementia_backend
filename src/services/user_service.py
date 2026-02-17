@@ -16,7 +16,8 @@ from google.auth.transport import requests as google_requests
 from ..utils.auth import hash_password, verify_password, create_access_token, create_refresh_token
 from ..database import Database
 
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "717354778892-h5t7l51m79s1b61dmsvmmeqce2i1frr0.apps.googleusercontent.com")
+# Use Web Client ID for verifying tokens from Android app
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "717354778892-cejp1dj272oc05qrjtu6a9bhcfb5lq30.apps.googleusercontent.com")
 
 logger = logging.getLogger(__name__)
 

@@ -191,7 +191,7 @@ class DetectionSessionDB:
             Inserted document ID
         """
         try:
-            collection = db["detection_sessions"]
+            collection = db["chat_risk_predictions"]
             result = await collection.insert_one(session_data)
             logger.info(f"Session saved: {session_data['session_id']}")
             return str(result.inserted_id)
@@ -219,7 +219,7 @@ class DetectionSessionDB:
             List of session documents
         """
         try:
-            collection = db["detection_sessions"]
+            collection = db["chat_risk_predictions"]
 
             query = {"user_id": user_id}
 
@@ -244,7 +244,7 @@ class DetectionSessionDB:
     async def get_session_by_id(db, session_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific session by ID"""
         try:
-            collection = db["detection_sessions"]
+            collection = db["chat_risk_predictions"]
             session = await collection.find_one({"session_id": session_id})
             return session
         except Exception as e:
@@ -278,7 +278,7 @@ class DetectionSessionDB:
             Session document (existing or newly created)
         """
         try:
-            collection = db["detection_sessions"]
+            collection = db["chat_risk_predictions"]
 
             # Try to find existing session
             existing_session = await collection.find_one({"session_id": session_id})
@@ -359,7 +359,7 @@ class DetectionSessionDB:
             True if successful
         """
         try:
-            collection = db["detection_sessions"]
+            collection = db["chat_risk_predictions"]
 
             result = await collection.update_one(
                 {"session_id": session_id},
@@ -399,7 +399,7 @@ class DetectionSessionDB:
             True if successful
         """
         try:
-            collection = db["detection_sessions"]
+            collection = db["chat_risk_predictions"]
 
             result = await collection.update_one(
                 {"session_id": session_id},
@@ -446,7 +446,7 @@ class DetectionSessionDB:
             True if successful
         """
         try:
-            collection = db["detection_sessions"]
+            collection = db["chat_risk_predictions"]
 
             update_data = {
                 "status": "finalized",
@@ -483,7 +483,7 @@ class DetectionSessionDB:
             List of active session documents
         """
         try:
-            collection = db["detection_sessions"]
+            collection = db["chat_risk_predictions"]
 
             cursor = collection.find({"status": "active"})
             sessions = await cursor.to_list(length=None)
@@ -499,7 +499,7 @@ class DetectionSessionDB:
     async def create_indexes(db):
         """Create indexes for detection_sessions collection"""
         try:
-            collection = db["detection_sessions"]
+            collection = db["chat_risk_predictions"]
 
             # Create indexes
             await collection.create_index("session_id", unique=True)

@@ -11,8 +11,8 @@ import re
 import logging
 from collections import Counter
 
-# Import AudioProcessor
-from src.services.audio_processor import AudioProcessor
+# Import AudioProcessor from same package
+from .audio_processor import AudioProcessor
 
 logger = logging.getLogger(__name__)
 

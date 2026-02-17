@@ -12,7 +12,7 @@ import logging
 
 from src.database import Database
 from src.models.detection_session import DetectionSessionDB
-from src.services.scoring_engine import ScoringEngine
+from .scoring_engine import ScoringEngine
 
 logger = logging.getLogger(__name__)
 
