@@ -8,7 +8,9 @@ import logging
 import hashlib
 import random
 import os
+import base64
 from datetime import datetime, timedelta
+from bson import Binary
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 from ..utils.auth import hash_password, verify_password, create_access_token, create_refresh_token
@@ -95,7 +97,13 @@ class UserService:
             "emergency_contact_number": emergency_contact_number.strip() if emergency_contact_number else "",
             "password": hashed_password,
             "profile_photo": profile_photo or "",
+            "profile_photo_binary": None,
+            "profile_photo_content_type": "",
             "medical_conditions": medical_conditions or [],
+            "allergies": [],
+            "special_treatments": [],
+            "medicines": [],
+            "medical_history": "",
             "caregiver_id": caregiver_id or "",
             "role": "user",
             "account_status": "active",
@@ -260,7 +268,10 @@ class UserService:
         
         if user:
             user.pop('password', None)
+            user.pop('profile_photo_binary', None)
             user['_id'] = str(user['_id'])
+            # Add profile photo URL flag
+            user['has_profile_photo'] = bool(user.get('profile_photo_content_type'))
             logger.info(f"Profile retrieved for user: {user_id}")
         else:
             logger.warning(f"User not found: {user_id}")
@@ -274,6 +285,7 @@ class UserService:
         
         if user:
             user.pop('password', None)
+            user.pop('profile_photo_binary', None)
             user['_id'] = str(user['_id'])
         
         return user
@@ -313,6 +325,7 @@ class UserService:
             raise ValueError(f"User {user_id} not found")
         
         result.pop('password', None)
+        result.pop('profile_photo_binary', None)
         result['_id'] = str(result['_id'])
         
         logger.info(f"Profile updated for user: {user_id}")
@@ -413,11 +426,187 @@ class UserService:
             raise ValueError(f"User not found: {user_id}")
         
         result.pop('password', None)
+        result.pop('profile_photo_binary', None)
         result['_id'] = str(result['_id'])
         
         logger.info(f"User {user_id} linked to caregiver {caregiver_id}")
         
         return result
+
+    async def upload_profile_photo(self, user_id: str, photo_base64: str, content_type: str = "image/jpeg") -> Dict[str, Any]:
+        """
+        Upload profile photo as binary data in MongoDB
+        
+        Args:
+            user_id: User's unique ID
+            photo_base64: Base64 encoded image data
+            content_type: MIME type of the image
+        
+        Returns:
+            Success response
+        """
+        collection = await self._get_collection()
+        
+        # Decode base64 to bytes
+        try:
+            # Remove data URL prefix if present
+            if ',' in photo_base64:
+                photo_base64 = photo_base64.split(',', 1)[1]
+            photo_bytes = base64.b64decode(photo_base64)
+        except Exception as e:
+            raise ValueError(f"Invalid base64 image data: {e}")
+        
+        # Check size limit (2MB)
+        if len(photo_bytes) > 2 * 1024 * 1024:
+            raise ValueError("Image size exceeds 2MB limit")
+        
+        # Store as Binary in MongoDB
+        binary_data = Binary(photo_bytes)
+        
+        result = await collection.find_one_and_update(
+            {"user_id": user_id},
+            {
+                "$set": {
+                    "profile_photo_binary": binary_data,
+                    "profile_photo_content_type": content_type,
+                    "updated_at": datetime.utcnow()
+                }
+            },
+            return_document=True
+        )
+        
+        if not result:
+            raise ValueError(f"User not found: {user_id}")
+        
+        logger.info(f"Profile photo uploaded for user: {user_id}")
+        
+        return {"success": True, "message": "Profile photo uploaded successfully"}
+
+    async def get_profile_photo(self, user_id: str) -> Optional[tuple]:
+        """
+        Get profile photo binary data
+        
+        Returns:
+            Tuple of (photo_bytes, content_type) or None
+        """
+        collection = await self._get_collection()
+        
+        user = await collection.find_one(
+            {"user_id": user_id},
+            {"profile_photo_binary": 1, "profile_photo_content_type": 1}
+        )
+        
+        if not user or not user.get("profile_photo_binary"):
+            return None
+        
+        return (bytes(user["profile_photo_binary"]), user.get("profile_photo_content_type", "image/jpeg"))
+
+    async def update_medical_records(self, user_id: str, records: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update medical records for a user
+        
+        Args:
+            user_id: User's unique ID
+            records: Dictionary with allergies, special_treatments, medicines, medical_history
+        """
+        collection = await self._get_collection()
+        
+        update_fields = {}
+        if "allergies" in records:
+            update_fields["allergies"] = records["allergies"]
+        if "special_treatments" in records:
+            update_fields["special_treatments"] = records["special_treatments"]
+        if "medicines" in records:
+            update_fields["medicines"] = records["medicines"]
+        if "medical_history" in records:
+            update_fields["medical_history"] = records["medical_history"]
+        if "medical_conditions" in records:
+            update_fields["medical_conditions"] = records["medical_conditions"]
+        
+        update_fields["updated_at"] = datetime.utcnow()
+        
+        result = await collection.find_one_and_update(
+            {"user_id": user_id},
+            {"$set": update_fields},
+            return_document=True
+        )
+        
+        if not result:
+            raise ValueError(f"User not found: {user_id}")
+        
+        result.pop('password', None)
+        result.pop('profile_photo_binary', None)
+        result['_id'] = str(result['_id'])
+        
+        logger.info(f"Medical records updated for user: {user_id}")
+        return result
+
+    async def get_medical_records(self, user_id: str) -> Dict[str, Any]:
+        """Get medical records for a user"""
+        collection = await self._get_collection()
+        
+        user = await collection.find_one(
+            {"user_id": user_id},
+            {
+                "allergies": 1, "special_treatments": 1,
+                "medicines": 1, "medical_history": 1,
+                "medical_conditions": 1
+            }
+        )
+        
+        if not user:
+            raise ValueError(f"User not found: {user_id}")
+        
+        return {
+            "allergies": user.get("allergies", []),
+            "special_treatments": user.get("special_treatments", []),
+            "medicines": user.get("medicines", []),
+            "medical_history": user.get("medical_history", ""),
+            "medical_conditions": user.get("medical_conditions", [])
+        }
+
+    async def calculate_profile_completion(self, user_id: str) -> Dict[str, Any]:
+        """
+        Calculate profile completion percentage
+        
+        Tracked fields: full_name, phone_number, age, gender, address,
+        emergency_contact_name, emergency_contact_number, profile_photo_binary,
+        allergies, medicines, medical_history, caregiver_id
+        """
+        collection = await self._get_collection()
+        user = await collection.find_one({"user_id": user_id})
+        
+        if not user:
+            raise ValueError(f"User not found: {user_id}")
+        
+        fields_to_check = {
+            "full_name": bool(user.get("full_name")),
+            "phone_number": bool(user.get("phone_number")),
+            "age": user.get("age") is not None,
+            "gender": bool(user.get("gender")),
+            "address": bool(user.get("address")),
+            "emergency_contact_name": bool(user.get("emergency_contact_name")),
+            "emergency_contact_number": bool(user.get("emergency_contact_number")),
+            "profile_photo": bool(user.get("profile_photo_binary")),
+            "allergies": bool(user.get("allergies")),
+            "medicines": bool(user.get("medicines")),
+            "medical_history": bool(user.get("medical_history")),
+            "caregiver_id": bool(user.get("caregiver_id")),
+        }
+        
+        completed = sum(1 for v in fields_to_check.values() if v)
+        total = len(fields_to_check)
+        percentage = round((completed / total) * 100)
+        
+        # Find missing fields
+        missing = [k for k, v in fields_to_check.items() if not v]
+        
+        return {
+            "percentage": percentage,
+            "completed_fields": completed,
+            "total_fields": total,
+            "missing_fields": missing
+        }
 
     async def get_user_sessions(self, user_id: str) -> list:
         logger.info(f"Retrieving sessions for user: {user_id}")

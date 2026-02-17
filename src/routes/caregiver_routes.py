@@ -4,6 +4,7 @@ API endpoints for caregiver registration, authentication, and profile management
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional, List
 import logging
@@ -92,6 +93,12 @@ class RefreshTokenRequest(BaseModel):
 class LinkPatientRequest(BaseModel):
     """Request model for linking a patient to caregiver"""
     patient_id: str
+
+
+class ProfilePhotoUploadRequest(BaseModel):
+    """Request model for uploading profile photo"""
+    photo_base64: str = Field(..., description="Base64 encoded image data")
+    content_type: str = Field("image/jpeg", description="MIME type of the image")
 
 
 # ===== DEPENDENCY FOR AUTH =====
@@ -434,3 +441,113 @@ async def delete_profile(current_caregiver = Depends(get_current_caregiver)):
     except Exception as e:
         logger.error(f"Delete account error: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete account")
+
+
+@router.get("/lookup/{caregiver_id}", response_model=dict)
+async def lookup_caregiver(caregiver_id: str):
+    """
+    Public endpoint to look up caregiver by ID.
+    Returns limited info (name, phone, photo flag) for patient confirmation.
+    No authentication required.
+    """
+    try:
+        service = get_caregiver_service(Database.db)
+        
+        result = await service.lookup_caregiver(caregiver_id)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Caregiver not found")
+        
+        return {
+            "success": True,
+            "caregiver": result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Lookup caregiver error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to lookup caregiver")
+
+
+@router.put("/profile-photo", response_model=dict)
+async def upload_profile_photo(
+    request: ProfilePhotoUploadRequest,
+    current_caregiver = Depends(get_current_caregiver)
+):
+    """
+    Upload caregiver profile photo as binary data stored in MongoDB.
+    Accepts base64 encoded image data. Max 2MB.
+    Requires: Bearer token in Authorization header
+    """
+    try:
+        service = get_caregiver_service(Database.db)
+        caregiver_id = current_caregiver["caregiver_id"]
+        
+        result = await service.upload_profile_photo(
+            caregiver_id, request.photo_base64, request.content_type
+        )
+        
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Upload photo error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload profile photo")
+
+
+@router.get("/profile-photo/{caregiver_id}")
+async def get_profile_photo(caregiver_id: str):
+    """
+    Get caregiver's profile photo as image response.
+    Public endpoint so photos can be displayed anywhere.
+    """
+    try:
+        service = get_caregiver_service(Database.db)
+        
+        result = await service.get_profile_photo(caregiver_id)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="No profile photo found")
+        
+        photo_bytes, content_type = result
+        
+        return Response(
+            content=photo_bytes,
+            media_type=content_type,
+            headers={"Cache-Control": "public, max-age=3600"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get photo error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve profile photo")
+
+
+@router.get("/patients/details", response_model=dict)
+async def get_patients_details(
+    current_caregiver = Depends(get_current_caregiver)
+):
+    """
+    Get full details of all patients linked to the current caregiver.
+    Requires: Bearer token in Authorization header
+    """
+    try:
+        service = get_caregiver_service(Database.db)
+        caregiver_id = current_caregiver["caregiver_id"]
+        
+        patients = await service.get_patients_details(caregiver_id)
+        
+        return {
+            "success": True,
+            "patients": patients,
+            "total_patients": len(patients)
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Get patients details error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve patients details")

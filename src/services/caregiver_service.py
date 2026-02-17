@@ -3,10 +3,12 @@ Caregiver Service
 Handles caregiver registration, authentication, and profile management
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import logging
 from datetime import datetime
 import re
+import base64
+from bson import Binary
 from ..utils.auth import (
     hash_password, 
     verify_password, 
@@ -225,7 +227,9 @@ class CaregiverService:
         
         if caregiver:
             caregiver.pop('password', None)
+            caregiver.pop('profile_photo_binary', None)
             caregiver['_id'] = str(caregiver['_id'])
+            caregiver['has_profile_photo'] = bool(caregiver.get('profile_photo_content_type'))
         
         return caregiver
     
@@ -236,6 +240,7 @@ class CaregiverService:
         
         if caregiver:
             caregiver.pop('password', None)
+            caregiver.pop('profile_photo_binary', None)
             caregiver['_id'] = str(caregiver['_id'])
         
         return caregiver
@@ -287,6 +292,7 @@ class CaregiverService:
             raise ValueError(f"Caregiver not found: {caregiver_id}")
         
         result.pop('password', None)
+        result.pop('profile_photo_binary', None)
         result['_id'] = str(result['_id'])
         
         logger.info(f"Caregiver profile updated: {caregiver_id}")
@@ -356,6 +362,7 @@ class CaregiverService:
             raise ValueError(f"Caregiver not found: {caregiver_id}")
         
         result.pop('password', None)
+        result.pop('profile_photo_binary', None)
         result['_id'] = str(result['_id'])
         
         logger.info(f"Patient {patient_id} linked to caregiver {caregiver_id}")
@@ -379,6 +386,7 @@ class CaregiverService:
             raise ValueError(f"Caregiver not found: {caregiver_id}")
         
         result.pop('password', None)
+        result.pop('profile_photo_binary', None)
         result['_id'] = str(result['_id'])
         
         logger.info(f"Patient {patient_id} unlinked from caregiver {caregiver_id}")
@@ -415,6 +423,112 @@ class CaregiverService:
         logger.info(f"Caregiver account deleted: {caregiver_id}")
         
         return True
+
+    async def upload_profile_photo(self, caregiver_id: str, photo_base64: str, content_type: str = "image/jpeg") -> Dict[str, Any]:
+        """
+        Upload profile photo as binary data in MongoDB
+        """
+        collection = await self._get_collection()
+        
+        try:
+            if ',' in photo_base64:
+                photo_base64 = photo_base64.split(',', 1)[1]
+            photo_bytes = base64.b64decode(photo_base64)
+        except Exception as e:
+            raise ValueError(f"Invalid base64 image data: {e}")
+        
+        if len(photo_bytes) > 2 * 1024 * 1024:
+            raise ValueError("Image size exceeds 2MB limit")
+        
+        binary_data = Binary(photo_bytes)
+        
+        result = await collection.find_one_and_update(
+            {"caregiver_id": caregiver_id},
+            {
+                "$set": {
+                    "profile_photo_binary": binary_data,
+                    "profile_photo_content_type": content_type,
+                    "updated_at": datetime.utcnow()
+                }
+            },
+            return_document=True
+        )
+        
+        if not result:
+            raise ValueError(f"Caregiver not found: {caregiver_id}")
+        
+        logger.info(f"Profile photo uploaded for caregiver: {caregiver_id}")
+        return {"success": True, "message": "Profile photo uploaded successfully"}
+
+    async def get_profile_photo(self, caregiver_id: str) -> Optional[tuple]:
+        """Get profile photo binary data"""
+        collection = await self._get_collection()
+        
+        caregiver = await collection.find_one(
+            {"caregiver_id": caregiver_id},
+            {"profile_photo_binary": 1, "profile_photo_content_type": 1}
+        )
+        
+        if not caregiver or not caregiver.get("profile_photo_binary"):
+            return None
+        
+        return (bytes(caregiver["profile_photo_binary"]), caregiver.get("profile_photo_content_type", "image/jpeg"))
+
+    async def get_patients_details(self, caregiver_id: str) -> List[Dict[str, Any]]:
+        """
+        Get full details of all linked patients
+        """
+        collection = await self._get_collection()
+        
+        caregiver = await collection.find_one({"caregiver_id": caregiver_id})
+        if not caregiver:
+            raise ValueError(f"Caregiver not found: {caregiver_id}")
+        
+        patient_ids = caregiver.get("patient_ids", [])
+        if not patient_ids:
+            return []
+        
+        # Fetch patient details from users collection
+        users_collection = self.db.get_collection("users")
+        patients = []
+        
+        for patient_id in patient_ids:
+            patient = await users_collection.find_one({"user_id": patient_id})
+            if patient:
+                patient.pop('password', None)
+                patient.pop('profile_photo_binary', None)
+                patient['_id'] = str(patient['_id'])
+                patient['has_profile_photo'] = bool(patient.get('profile_photo_content_type'))
+                patients.append(patient)
+        
+        logger.info(f"Retrieved {len(patients)} patients for caregiver {caregiver_id}")
+        return patients
+
+    async def lookup_caregiver(self, caregiver_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Public lookup - returns limited caregiver info for patient confirmation
+        Only returns name, phone, and photo URL flag
+        """
+        collection = await self._get_collection()
+        
+        caregiver = await collection.find_one(
+            {"caregiver_id": caregiver_id, "account_status": "active"},
+            {
+                "caregiver_id": 1, "full_name": 1, "first_name": 1,
+                "last_name": 1, "mobile_number": 1,
+                "profile_photo_content_type": 1
+            }
+        )
+        
+        if not caregiver:
+            return None
+        
+        return {
+            "caregiver_id": caregiver.get("caregiver_id"),
+            "full_name": caregiver.get("full_name", f"{caregiver.get('first_name', '')} {caregiver.get('last_name', '')}"),
+            "mobile_number": caregiver.get("mobile_number", ""),
+            "has_profile_photo": bool(caregiver.get("profile_photo_content_type"))
+        }
 
 
 # Singleton instance
