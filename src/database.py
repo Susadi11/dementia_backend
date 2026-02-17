@@ -138,14 +138,14 @@ class Database:
             await alerts.create_index("caregiver_id")
             await alerts.create_index("created_at")
 
-            # Detection session indexes (12-parameter system)
-            detection_sessions = cls.get_collection("detection_sessions")
-            await detection_sessions.create_index("session_id", unique=True)
-            await detection_sessions.create_index("user_id")
-            await detection_sessions.create_index("timestamp")
-            await detection_sessions.create_index([("user_id", 1), ("timestamp", -1)])
-            await detection_sessions.create_index("time_window")
-            await detection_sessions.create_index("date")
+            # Chat detection session indexes (12-parameter system)
+            chat_detection_sessions = cls.get_collection("chat_detection_sessions")
+            await chat_detection_sessions.create_index("session_id", unique=True)
+            await chat_detection_sessions.create_index("user_id")
+            await chat_detection_sessions.create_index("timestamp")
+            await chat_detection_sessions.create_index([("user_id", 1), ("timestamp", -1)])
+            await chat_detection_sessions.create_index("time_window")
+            await chat_detection_sessions.create_index("date")
 
             logger.info("Database indexes created successfully")
 

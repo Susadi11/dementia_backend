@@ -31,7 +31,7 @@ from src.features.reminder_system.weekly_report_generator import (
     WeeklyReportGenerator, WeeklyCognitiveReport
 )
 from src.services.reminder_db_service import ReminderDatabaseService
-from src.services.whisper_service import get_whisper_service
+from src.services.chatbot import get_whisper_service
 from src.features.conversational_ai.nlp.nlp_engine import NLPEngine
 
 logger = logging.getLogger(__name__)
