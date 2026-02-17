@@ -4,10 +4,12 @@ API endpoints for user (patient/elderly) registration, authentication, and profi
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional, List
 import logging
 from ..services.user_service import get_user_service
+from ..services.caregiver_service import get_caregiver_service
 from ..database import Database
 from ..utils.auth import verify_token, refresh_access_token
 
@@ -114,6 +116,21 @@ class ResetPasswordRequest(BaseModel):
         if 'new_password' in values and v != values['new_password']:
             raise ValueError('Passwords do not match')
         return v
+
+
+class ProfilePhotoUploadRequest(BaseModel):
+    """Request model for uploading profile photo"""
+    photo_base64: str = Field(..., description="Base64 encoded image data")
+    content_type: str = Field("image/jpeg", description="MIME type of the image")
+
+
+class MedicalRecordsUpdateRequest(BaseModel):
+    """Request model for updating medical records"""
+    allergies: Optional[List[str]] = None
+    special_treatments: Optional[List[str]] = None
+    medicines: Optional[List[str]] = None
+    medical_history: Optional[str] = None
+    medical_conditions: Optional[List[str]] = None
 
 
 
@@ -382,6 +399,14 @@ async def link_caregiver(
         
         updated_profile = await service.link_to_caregiver(user_id, request.caregiver_id)
         
+        # Bidirectional: also add patient to caregiver's patient_ids
+        try:
+            caregiver_service = get_caregiver_service(Database.db)
+            if caregiver_service:
+                await caregiver_service.link_patient(request.caregiver_id, user_id)
+        except Exception as link_err:
+            logger.warning(f"Could not link patient to caregiver: {link_err}")
+        
         return {
             "success": True,
             "message": f"Caregiver {request.caregiver_id} linked successfully",
@@ -474,4 +499,152 @@ async def reset_password(request: ResetPasswordRequest):
     except Exception as e:
         logger.error(f"Reset password error: {e}")
         raise HTTPException(status_code=500, detail="Failed to reset password")
+
+
+@router.put("/profile-photo", response_model=dict)
+async def upload_profile_photo(
+    request: ProfilePhotoUploadRequest,
+    current_user = Depends(get_current_user)
+):
+    """
+    Upload profile photo as binary data stored in MongoDB
+    
+    Accepts base64 encoded image data. Max 2MB.
+    Requires: Bearer token in Authorization header
+    """
+    try:
+        service = get_user_service()
+        user_id = current_user["user_id"]
+        
+        result = await service.upload_profile_photo(
+            user_id, request.photo_base64, request.content_type
+        )
+        
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Upload photo error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload profile photo")
+
+
+@router.get("/profile-photo/{user_id}")
+async def get_profile_photo(user_id: str):
+    """
+    Get user's profile photo as image response
+    
+    This is a public endpoint so photos can be displayed anywhere.
+    Returns the image binary directly.
+    """
+    try:
+        service = get_user_service()
+        
+        result = await service.get_profile_photo(user_id)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="No profile photo found")
+        
+        photo_bytes, content_type = result
+        
+        return Response(
+            content=photo_bytes,
+            media_type=content_type,
+            headers={"Cache-Control": "public, max-age=3600"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get photo error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve profile photo")
+
+
+@router.put("/medical-records", response_model=dict)
+async def update_medical_records(
+    request: MedicalRecordsUpdateRequest,
+    current_user = Depends(get_current_user)
+):
+    """
+    Update medical records for current user
+    
+    Requires: Bearer token in Authorization header
+    """
+    try:
+        service = get_user_service()
+        user_id = current_user["user_id"]
+        
+        records = {k: v for k, v in request.dict().items() if v is not None}
+        
+        if not records:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        
+        updated = await service.update_medical_records(user_id, records)
+        
+        return {
+            "success": True,
+            "message": "Medical records updated successfully",
+            "user": updated
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Update medical records error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update medical records")
+
+
+@router.get("/medical-records", response_model=dict)
+async def get_medical_records(
+    current_user = Depends(get_current_user)
+):
+    """
+    Get medical records for current user
+    
+    Requires: Bearer token in Authorization header
+    """
+    try:
+        service = get_user_service()
+        user_id = current_user["user_id"]
+        
+        records = await service.get_medical_records(user_id)
+        
+        return {
+            "success": True,
+            "records": records
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Get medical records error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve medical records")
+
+
+@router.get("/profile-completion", response_model=dict)
+async def get_profile_completion(
+    current_user = Depends(get_current_user)
+):
+    """
+    Get profile completion percentage
+    
+    Returns percentage, completed/total fields, and list of missing fields.
+    Requires: Bearer token in Authorization header
+    """
+    try:
+        service = get_user_service()
+        user_id = current_user["user_id"]
+        
+        completion = await service.calculate_profile_completion(user_id)
+        
+        return {
+            "success": True,
+            "completion": completion
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Get profile completion error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to calculate profile completion")
 
