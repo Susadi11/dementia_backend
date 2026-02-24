@@ -1,0 +1,259 @@
+{
+  "timestamp": "2026-02-22T00:03:56.077230",
+  "models": {
+    "Random Forest": {
+      "model_name": "Random Forest",
+      "hyperparameters": {
+        "n_estimators": 100,
+        "max_depth": 5,
+        "min_samples_split": 20,
+        "min_samples_leaf": 10,
+        "max_features": "sqrt"
+      },
+      "train_metrics": {
+        "accuracy": 0.9544857768052516,
+        "precision": 0.9803328290468987,
+        "recall": 0.8768606224627875,
+        "f1": 0.9257142857142857
+      },
+      "test_metrics": {
+        "accuracy": 0.9615384615384616,
+        "precision": 0.9822485207100592,
+        "recall": 0.8972972972972973,
+        "f1": 0.9378531073446328,
+        "roc_auc": 0.9927788253369649
+      },
+      "cv_metrics": {
+        "accuracy": {
+          "train_mean": 0.9543763676148795,
+          "train_std": 0.0022315183866926814,
+          "test_mean": 0.9452954048140043,
+          "test_std": 0.014514769323218388,
+          "gap": 0.009080962800875225
+        },
+        "precision": {
+          "train_mean": 0.9695968062626775,
+          "train_std": 0.021136904047095104,
+          "test_mean": 0.9573335852725166,
+          "test_std": 0.046999850605123954,
+          "gap": 0.012263220990160972
+        },
+        "recall": {
+          "train_mean": 0.8876903553299492,
+          "train_std": 0.021500489887843078,
+          "test_mean": 0.8728075013789299,
+          "test_std": 0.02574955172663906,
+          "gap": 0.014882853951019293
+        },
+        "f1": {
+          "train_mean": 0.9263603264949507,
+          "train_std": 0.0038750872536211195,
+          "test_mean": 0.9120521736583603,
+          "test_std": 0.021051295031767493,
+          "gap": 0.014308152836590371
+        },
+        "roc_auc": {
+          "train_mean": 0.9926565740891501,
+          "train_std": 0.0005530982307044072,
+          "test_mean": 0.9870338818016775,
+          "test_std": 0.0029462221920952348,
+          "gap": 0.005622692287472586
+        }
+      },
+      "overfitting_gap": -0.0070526847332099685,
+      "confusion_matrix": [
+        [
+          384,
+          3
+        ],
+        [
+          19,
+          166
+        ]
+      ],
+      "feature_importance": {
+        "hesitation_pauses": 0.053209290746762776,
+        "semantic_incoherence": 0.05166271981777038,
+        "self_correction": 0.004138195482677088,
+        "response_coherence": 0.021454993814798855,
+        "response_time_seconds": 0.6348459078712306,
+        "pause_frequency": 0.03845786300810371,
+        "speech_rate": 0.19623102925865651
+      }
+    },
+    "Gradient Boosting": {
+      "model_name": "Gradient Boosting",
+      "hyperparameters": {
+        "n_estimators": 50,
+        "max_depth": 3,
+        "learning_rate": 0.05,
+        "subsample": 0.8,
+        "min_samples_split": 10,
+        "min_samples_leaf": 5
+      },
+      "train_metrics": {
+        "accuracy": 0.9514223194748359,
+        "precision": 0.9875776397515528,
+        "recall": 0.8606224627875507,
+        "f1": 0.9197396963123644
+      },
+      "test_metrics": {
+        "accuracy": 0.9545454545454546,
+        "precision": 0.9818181818181818,
+        "recall": 0.8756756756756757,
+        "f1": 0.9257142857142857,
+        "roc_auc": 0.9922550457434178
+      },
+      "cv_metrics": {
+        "accuracy": {
+          "train_mean": 0.9510940919037199,
+          "train_std": 0.002579830661389853,
+          "test_mean": 0.9452954048140043,
+          "test_std": 0.006032406456056979,
+          "gap": 0.005798687089715537
+        },
+        "precision": {
+          "train_mean": 0.9872165138076016,
+          "train_std": 0.0030413119520409627,
+          "test_mean": 0.9873342259450055,
+          "test_std": 0.0037841248866424372,
+          "gap": -0.00011771213740396913
+        },
+        "recall": {
+          "train_mean": 0.8599447798051859,
+          "train_std": 0.00949078844063718,
+          "test_mean": 0.8417080345651774,
+          "test_std": 0.019180060299174663,
+          "gap": 0.01823674524000851
+        },
+        "f1": {
+          "train_mean": 0.9191561280501634,
+          "train_std": 0.004718995979619493,
+          "test_mean": 0.9085925657769847,
+          "test_std": 0.010945246892428349,
+          "gap": 0.010563562273178784
+        },
+        "roc_auc": {
+          "train_mean": 0.9909173444730925,
+          "train_std": 0.0010819241680420908,
+          "test_mean": 0.9850303560365751,
+          "test_std": 0.003931934087505987,
+          "gap": 0.005886988436517471
+        }
+      },
+      "overfitting_gap": -0.0031231350706186767,
+      "confusion_matrix": [
+        [
+          384,
+          3
+        ],
+        [
+          23,
+          162
+        ]
+      ],
+      "feature_importance": {
+        "hesitation_pauses": 0.004401903504937153,
+        "semantic_incoherence": 0.029316593863058918,
+        "self_correction": 8.274447757913065e-05,
+        "response_coherence": 0.004111709843442863,
+        "response_time_seconds": 0.6361282079690963,
+        "pause_frequency": 3.282860881978366e-07,
+        "speech_rate": 0.3259585120557974
+      }
+    },
+    "Logistic Regression": {
+      "model_name": "Logistic Regression",
+      "hyperparameters": {
+        "C": 0.1,
+        "penalty": "l2"
+      },
+      "train_metrics": {
+        "accuracy": 0.8989059080962801,
+        "precision": 0.815136476426799,
+        "recall": 0.8890392422192152,
+        "f1": 0.8504854368932039
+      },
+      "test_metrics": {
+        "accuracy": 0.9195804195804196,
+        "precision": 0.8527918781725888,
+        "recall": 0.9081081081081082,
+        "f1": 0.8795811518324608,
+        "roc_auc": 0.9795237097562679
+      },
+      "cv_metrics": {
+        "accuracy": {
+          "train_mean": 0.8975929978118163,
+          "train_std": 0.002711052886950477,
+          "test_mean": 0.8971553610503282,
+          "test_std": 0.014514769323218359,
+          "gap": 0.0004376367614881138
+        },
+        "precision": {
+          "train_mean": 0.8138716401715422,
+          "train_std": 0.004624515016673071,
+          "test_mean": 0.8129169634445546,
+          "test_std": 0.024180997166074098,
+          "gap": 0.0009546767269876799
+        },
+        "recall": {
+          "train_mean": 0.8859943064892303,
+          "train_std": 0.0034924109975112824,
+          "test_mean": 0.8863210148924436,
+          "test_std": 0.019839078812974087,
+          "gap": -0.0003267084032133605
+        },
+        "f1": {
+          "train_mean": 0.8483999743032762,
+          "train_std": 0.0038688113745372014,
+          "test_mean": 0.847956752536174,
+          "test_std": 0.021022289036583108,
+          "gap": 0.00044322176710220873
+        },
+        "roc_auc": {
+          "train_mean": 0.9717143022298604,
+          "train_std": 0.0015051242141312052,
+          "test_mean": 0.9704115605663635,
+          "test_std": 0.00823221857755244,
+          "gap": 0.0013027416634969757
+        }
+      },
+      "overfitting_gap": -0.020674511484139457,
+      "confusion_matrix": [
+        [
+          358,
+          29
+        ],
+        [
+          17,
+          168
+        ]
+      ],
+      "feature_importance": null
+    }
+  },
+  "best_model": {
+    "name": "Random Forest",
+    "test_f1": 0.9378531073446328
+  },
+  "selected_features": [
+    "hesitation_pauses",
+    "semantic_incoherence",
+    "self_correction",
+    "response_coherence",
+    "response_time_seconds",
+    "pause_frequency",
+    "speech_rate"
+  ],
+  "feature_scores": {
+    "repeated_questions": NaN,
+    "response_time_seconds": 2408.2759556070973,
+    "speech_rate": 290.39531783631617,
+    "response_coherence": 178.1575622295684,
+    "hesitation_pauses": 164.62247464597104,
+    "pause_frequency": 164.62247464597104,
+    "semantic_incoherence": 85.58604873993457,
+    "self_correction": 45.90135021935629,
+    "low_confidence_answers": 44.41283953677173
+  }
+}
