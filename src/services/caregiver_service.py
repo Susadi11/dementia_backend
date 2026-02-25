@@ -538,6 +538,8 @@ _caregiver_service = None
 def get_caregiver_service(db=None):
     """Get or create caregiver service instance"""
     global _caregiver_service
-    if _caregiver_service is None and db is not None:
+    if _caregiver_service is None:
+        if db is None:
+            raise RuntimeError("Database not connected. Cannot initialize caregiver service.")
         _caregiver_service = CaregiverService(db)
     return _caregiver_service

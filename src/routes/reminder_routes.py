@@ -12,11 +12,12 @@ Provides endpoints for:
 
 from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import uuid
 import tempfile
 import os
+import statistics
 from pathlib import Path
 
 from src.features.reminder_system import (
@@ -25,7 +26,7 @@ from src.features.reminder_system import (
 )
 from src.features.reminder_system.caregiver_notifier import CaregiverNotifier
 from src.features.reminder_system.reminder_models import (
-    ReminderStatus, ReminderPriority, CaregiverAlert
+    ReminderStatus, ReminderPriority, CaregiverAlert, InteractionType
 )
 from src.features.reminder_system.weekly_report_generator import (
     WeeklyReportGenerator, WeeklyCognitiveReport
@@ -1237,6 +1238,495 @@ async def complete_reminder(reminder_id: str):
         raise
     except Exception as e:
         logger.error(f"Error completing reminder: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post("/stop/{reminder_id}", response_model=dict, status_code=status.HTTP_200_OK)
+async def stop_reminder_with_response(
+    reminder_id: str,
+    user_response: Optional[str] = None
+):
+    """
+    Stop/Complete a reminder with optional user response for dementia tracking.
+    
+    This is the IMPROVED endpoint that:
+    - Stops the alarm/notification
+    - Analyzes user's response for dementia indicators
+    - Tracks interaction to BehaviorTracker
+    - Calculates cognitive risk score
+    - Alerts caregiver if needed
+    
+    - **reminder_id**: Reminder identifier
+    - **user_response**: User's response text (e.g., "done", "I took it", etc.)
+    """
+    try:
+        db_service = get_db_service()
+        
+        # Get the reminder
+        reminder_data = await db_service.get_reminder(reminder_id)
+        if not reminder_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
+        
+        completion_time = datetime.now()
+        scheduled_time = reminder_data.get("scheduled_time")
+        if isinstance(scheduled_time, str):
+            scheduled_time = datetime.fromisoformat(scheduled_time.replace('+00:00', ''))
+        
+        # Calculate response time
+        response_time_seconds = None
+        if scheduled_time:
+            response_time_seconds = (completion_time - scheduled_time).total_seconds()
+        
+        # Analyze response if provided
+        analysis_result = None
+        cognitive_risk_score = 0.0
+        interaction_type = InteractionType.CONFIRMED
+        caregiver_notified = False
+        
+        if user_response and user_response.strip():
+            # Analyze the response for dementia indicators
+            from src.features.reminder_system.reminder_models import Reminder, ReminderPriority
+            
+            reminder_obj = Reminder(
+                id=reminder_id,
+                user_id=reminder_data["user_id"],
+                title=reminder_data["title"],
+                description=reminder_data.get("description"),
+                scheduled_time=scheduled_time or datetime.now(),
+                priority=ReminderPriority(reminder_data.get("priority", "medium")),
+                category=reminder_data.get("category", "general")
+            )
+            
+            result = scheduler.process_reminder_response(
+                reminder=reminder_obj,
+                user_response=user_response,
+                response_time_seconds=response_time_seconds
+            )
+            
+            analysis_result = result.get('analysis', {})
+            cognitive_risk_score = analysis_result.get('cognitive_risk_score', 0.0)
+            interaction_type = InteractionType(analysis_result.get('interaction_type', 'confirmed'))
+            caregiver_notified = result.get('caregiver_notified', False)
+        else:
+            # No response provided - just mark as completed
+            # Still track interaction for behavior analysis
+            interaction = ReminderInteraction(
+                reminder_id=reminder_id,
+                user_id=reminder_data["user_id"],
+                reminder_category=reminder_data.get("category"),
+                interaction_type=InteractionType.CONFIRMED,
+                interaction_time=completion_time,
+                response_time_seconds=response_time_seconds
+            )
+            behavior_tracker.log_interaction(interaction)
+        
+        # Mark as completed
+        await db_service.update_reminder(
+            reminder_id,
+            {
+                "status": "completed",
+                "completed_at": completion_time,
+                "user_response": user_response,
+                "cognitive_risk_score": cognitive_risk_score
+            }
+        )
+        
+        logger.info(f"Stopped reminder {reminder_id} - cognitive risk: {cognitive_risk_score:.2f}")
+        
+        # Handle repeat patterns
+        repeat_pattern = reminder_data.get("repeat_pattern")
+        next_reminder_id = None
+        next_scheduled_time = None
+        
+        if repeat_pattern in ["daily", "weekly"]:
+            current_scheduled = reminder_data["scheduled_time"]
+            if isinstance(current_scheduled, str):
+                current_scheduled = datetime.fromisoformat(current_scheduled.replace('+00:00', ''))
+            
+            if repeat_pattern == "daily":
+                next_scheduled_time = current_scheduled + timedelta(days=1)
+            elif repeat_pattern == "weekly":
+                next_scheduled_time = current_scheduled + timedelta(weeks=1)
+            
+            # Create next reminder instance
+            from src.features.reminder_system.reminder_models import Reminder, ReminderPriority, ReminderStatus
+            
+            next_reminder = Reminder(
+                id=f"reminder_{uuid.uuid4().hex[:12]}",
+                user_id=reminder_data["user_id"],
+                title=reminder_data["title"],
+                description=reminder_data.get("description"),
+                scheduled_time=next_scheduled_time,
+                priority=ReminderPriority(reminder_data.get("priority", "medium")),
+                category=reminder_data.get("category", "general"),
+                repeat_pattern=repeat_pattern,
+                repeat_interval_minutes=reminder_data.get("repeat_interval_minutes"),
+                caregiver_ids=reminder_data.get("caregiver_ids", []),
+                adaptive_scheduling_enabled=reminder_data.get("adaptive_scheduling_enabled", True),
+                escalation_enabled=reminder_data.get("escalation_enabled", True),
+                escalation_threshold_minutes=reminder_data.get("escalation_threshold_minutes", 30),
+                notify_caregiver_on_miss=reminder_data.get("notify_caregiver_on_miss", True),
+                status=ReminderStatus.ACTIVE
+            )
+            
+            result = await db_service.create_reminder(next_reminder)
+            next_reminder_id = result["id"]
+            
+            logger.info(f"Created next {repeat_pattern} reminder {next_reminder_id}")
+        
+        return {
+            "status": "success",
+            "message": "Reminder stopped successfully",
+            "reminder_id": reminder_id,
+            "completed_at": completion_time.isoformat(),
+            "cognitive_analysis": {
+                "risk_score": cognitive_risk_score,
+                "interaction_type": interaction_type.value,
+                "features": analysis_result.get('features', {}) if analysis_result else {},
+                "caregiver_notified": caregiver_notified,
+                "confusion_detected": analysis_result.get('confusion_detected', False) if analysis_result else False,
+                "memory_issue_detected": analysis_result.get('memory_issue_detected', False) if analysis_result else False
+            },
+            "has_next_occurrence": next_reminder_id is not None,
+            "next_reminder_id": next_reminder_id,
+            "next_scheduled_time": next_scheduled_time.isoformat() if next_scheduled_time else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error stopping reminder: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post("/snooze-tracked/{reminder_id}", response_model=dict)
+async def snooze_reminder_with_tracking(reminder_id: str, delay_minutes: int = 15):
+    """
+    Snooze a reminder and track the interaction for dementia detection.
+    
+    This IMPROVED snooze endpoint:
+    - Delays the reminder by specified minutes
+    - Tracks snooze behavior to BehaviorTracker
+    - Monitors frequent snoozing patterns (may indicate confusion/avoidance)
+    - Updates adaptive scheduling
+    
+    - **reminder_id**: Reminder identifier
+    - **delay_minutes**: Minutes to delay (default 15)
+    """
+    try:
+        db_service = get_db_service()
+        
+        # Get reminder from database
+        reminder_data = await db_service.get_reminder(reminder_id)
+        if not reminder_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
+        
+        from src.features.reminder_system.reminder_models import Reminder, ReminderPriority
+        
+        scheduled_time = reminder_data.get("scheduled_time")
+        if isinstance(scheduled_time, str):
+            scheduled_time = datetime.fromisoformat(scheduled_time.replace('+00:00', ''))
+        
+        reminder = Reminder(
+            id=reminder_id,
+            user_id=reminder_data["user_id"],
+            title=reminder_data["title"],
+            scheduled_time=scheduled_time or datetime.now(),
+            priority=ReminderPriority(reminder_data.get("priority", "medium")),
+            category=reminder_data.get("category", "general")
+        )
+        
+        # Reschedule the reminder
+        updated_reminder = scheduler.reschedule_reminder(
+            reminder=reminder,
+            delay_minutes=delay_minutes,
+            reason="user_requested_snooze"
+        )
+        
+        # Track the snooze interaction
+        interaction = ReminderInteraction(
+            reminder_id=reminder_id,
+            user_id=reminder_data["user_id"],
+            reminder_category=reminder_data.get("category"),
+            interaction_type=InteractionType.DELAYED,
+            interaction_time=datetime.now(),
+            user_response_text=f"Snoozed for {delay_minutes} minutes"
+        )
+        behavior_tracker.log_interaction(interaction)
+        
+        # Check snooze frequency (frequent snoozing may indicate confusion)
+        pattern = behavior_tracker.get_user_behavior_pattern(
+            user_id=reminder_data["user_id"],
+            reminder_id=reminder_id,
+            days=7
+        )
+        
+        # Alert if too many snoozes
+        alert_caregiver = False
+        if pattern.delayed_count > 5 and pattern.total_reminders > 0:
+            delay_rate = pattern.delayed_count / pattern.total_reminders
+            if delay_rate > 0.6:  # More than 60% snooze rate
+                alert_caregiver = True
+                logger.warning(f"High snooze rate for user {reminder_data['user_id']}: {delay_rate:.1%}")
+        
+        # Update reminder in database
+        await db_service.update_reminder(
+            reminder_id,
+            {
+                "scheduled_time": updated_reminder.scheduled_time,
+                "status": "snoozed"
+            }
+        )
+        
+        return {
+            "status": "success",
+            "message": f"Reminder snoozed for {delay_minutes} minutes",
+            "reminder_id": reminder_id,
+            "new_scheduled_time": updated_reminder.scheduled_time.isoformat(),
+            "snooze_count_week": pattern.delayed_count,
+            "snooze_rate": pattern.delayed_count / pattern.total_reminders if pattern.total_reminders > 0 else 0,
+            "caregiver_alert": alert_caregiver,
+            "recommendation": "Consider discussing with caregiver" if alert_caregiver else "Normal snooze behavior"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error snoozing reminder: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post("/help-request/{reminder_id}", response_model=dict)
+async def request_help_confused(
+    reminder_id: str,
+    help_reason: Optional[str] = "confused"
+):
+    """
+    User requests help or indicates confusion about a reminder.
+    
+    This endpoint is triggered when user indicates they:
+    - Don't understand the reminder
+    - Are confused about what to do
+    - Need assistance from caregiver
+    
+    This is a CRITICAL indicator for dementia detection and triggers immediate caregiver alert.
+    
+    - **reminder_id**: Reminder identifier
+    - **help_reason**: Reason for help (confused, dont_understand, forgot, need_assistance)
+    """
+    try:
+        db_service = get_db_service()
+        
+        # Get reminder
+        reminder_data = await db_service.get_reminder(reminder_id)
+        if not reminder_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
+        
+        user_id = reminder_data["user_id"]
+        
+        # Track as confused interaction - HIGH cognitive risk indicator
+        interaction = ReminderInteraction(
+            reminder_id=reminder_id,
+            user_id=user_id,
+            reminder_category=reminder_data.get("category"),
+            interaction_type=InteractionType.CONFUSED,
+            interaction_time=datetime.now(),
+            user_response_text=f"Help requested: {help_reason}",
+            cognitive_risk_score=0.75,  # High risk - explicit confusion
+            confusion_detected=True,
+            recommended_action="escalate_to_caregiver",
+            caregiver_alert_triggered=True
+        )
+        behavior_tracker.log_interaction(interaction)
+        
+        # Update reminder status
+        await db_service.update_reminder(
+            reminder_id,
+            {
+                "status": "requires_help",
+                "help_requested": True,
+                "help_reason": help_reason,
+                "help_requested_at": datetime.now()
+            }
+        )
+        
+        # Trigger caregiver notification
+        from src.features.reminder_system.caregiver_notifier import CaregiverNotifier
+        from src.features.reminder_system.reminder_models import CaregiverAlert
+        
+        notifier = CaregiverNotifier()
+        
+        # Create alert for all assigned caregivers
+        caregiver_ids = reminder_data.get("caregiver_ids", [])
+        alerts_sent = []
+        
+        for caregiver_id in caregiver_ids:
+            alert = CaregiverAlert(
+                id=f"alert_{uuid.uuid4().hex[:12]}",
+                caregiver_id=caregiver_id,
+                user_id=user_id,
+                reminder_id=reminder_id,
+                alert_type="confusion_detected",
+                severity="high",
+                message=f"Patient is confused about: {reminder_data['title']}",
+                reminder_title=reminder_data["title"],
+                cognitive_risk_score=0.75,
+                user_response=f"Help requested: {help_reason}",
+                context={
+                    "help_reason": help_reason,
+                    "category": reminder_data.get("category"),
+                    "priority": reminder_data.get("priority")
+                }
+            )
+            
+            notifier.send_alert(alert)
+            alerts_sent.append(caregiver_id)
+        
+        logger.warning(f"HELP REQUESTED: User {user_id} confused about reminder {reminder_id}")
+        logger.info(f"Caregiver alerts sent to: {alerts_sent}")
+        
+        return {
+            "status": "success",
+            "message": "Help request received. Caregiver has been notified.",
+            "reminder_id": reminder_id,
+            "cognitive_risk_score": 0.75,
+            "caregiver_notified": True,
+            "caregivers_alerted": alerts_sent,
+            "recommendation": "Caregiver will contact you shortly",
+            "help_reason": help_reason
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing help request: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/weekly-dementia-risk/{user_id}", response_model=dict)
+async def get_weekly_dementia_risk_report(
+    user_id: str,
+    weeks: int = 4
+):
+    """
+    Generate weekly dementia risk report for caregiver dashboard.
+    
+    Provides comprehensive cognitive decline tracking over multiple weeks:
+    - Average cognitive risk scores per week
+    - Trend analysis (improving, stable, declining)
+    - Confusion frequency tracking
+    - Response pattern analysis
+    - Recommendations for intervention
+    
+    - **user_id**: Patient identifier
+    - **weeks**: Number of weeks to analyze (default 4)
+    """
+    try:
+        # Get behavior patterns for each week
+        weekly_data = []
+        
+        for week in range(weeks):
+            start_day = week * 7
+            end_day = start_day + 7
+            
+            pattern = behavior_tracker.get_user_behavior_pattern(
+                user_id=user_id,
+                days=7  # One week at a time
+            )
+            
+            week_number = weeks - week  # Most recent week is 1
+            
+            weekly_data.append({
+                "week": week_number,
+                "total_reminders": pattern.total_reminders,
+                "confirmed_count": pattern.confirmed_count,
+                "confused_count": pattern.confused_count,
+                "ignored_count": pattern.ignored_count,
+                "avg_cognitive_risk": pattern.avg_cognitive_risk_score or 0.0,
+                "confusion_trend": pattern.confusion_trend,
+                "escalation_needed": pattern.escalation_recommended
+            })
+        
+        # Calculate overall trends
+        risk_scores = [w["avg_cognitive_risk"] for w in weekly_data if w["avg_cognitive_risk"] > 0]
+        avg_risk = statistics.mean(risk_scores) if risk_scores else 0.0
+        
+        # Determine trend
+        if len(risk_scores) >= 2:
+            recent_avg = statistics.mean(risk_scores[:2])  # Last 2 weeks
+            older_avg = statistics.mean(risk_scores[2:]) if len(risk_scores) > 2 else recent_avg
+            
+            if recent_avg > older_avg + 0.1:
+                overall_trend = "declining"  # Cognitive function declining
+                trend_severity = "concerning"
+            elif recent_avg < older_avg - 0.1:
+                overall_trend = "improving"
+                trend_severity = "positive"
+            else:
+                overall_trend = "stable"
+                trend_severity = "normal"
+        else:
+            overall_trend = "insufficient_data"
+            trend_severity = "unknown"
+        
+        # Generate recommendations
+        recommendations = []
+        if avg_risk > 0.7:
+            recommendations.append("⚠️ HIGH RISK: Schedule medical evaluation immediately")
+        elif avg_risk > 0.5:
+            recommendations.append("📋 Elevated risk: Increase monitoring frequency")
+        
+        total_confused = sum(w["confused_count"] for w in weekly_data)
+        if total_confused > 10:
+            recommendations.append("🧠 High confusion frequency - consider cognitive assessment")
+        
+        if overall_trend == "declining":
+            recommendations.append("📉 Cognitive decline detected - consult healthcare provider")
+        
+        if not recommendations:
+            recommendations.append("✅ Cognitive function appears stable")
+        
+        logger.info(f"Generated {weeks}-week dementia risk report for user {user_id}")
+        
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "report_period_weeks": weeks,
+            "summary": {
+                "average_cognitive_risk": avg_risk,
+                "overall_trend": overall_trend,
+                "trend_severity": trend_severity,
+                "total_confused_interactions": total_confused,
+                "requires_immediate_attention": avg_risk > 0.7 or overall_trend == "declining"
+            },
+            "weekly_breakdown": weekly_data,
+            "recommendations": recommendations,
+            "generated_at": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating weekly report: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)

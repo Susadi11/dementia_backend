@@ -153,6 +153,9 @@ async def register_caregiver(request: CaregiverRegisterRequest):
             "caregiver": result
         }
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -175,6 +178,9 @@ async def login_caregiver(request: CaregiverLoginRequest):
         
         return result
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
@@ -227,6 +233,9 @@ async def get_profile(current_caregiver = Depends(get_current_caregiver)):
             "caregiver": profile
         }
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except HTTPException:
         raise
     except Exception as e:
@@ -257,6 +266,9 @@ async def get_caregiver_profile(
             "caregiver": profile
         }
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except HTTPException:
         raise
     except Exception as e:
@@ -292,6 +304,9 @@ async def update_profile(
             "caregiver": updated_profile
         }
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -324,6 +339,9 @@ async def change_password(
             "message": "Password changed successfully"
         }
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -353,6 +371,9 @@ async def link_patient(
             "caregiver": updated_profile
         }
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -382,6 +403,9 @@ async def unlink_patient(
             "caregiver": updated_profile
         }
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -411,6 +435,9 @@ async def get_linked_patients(current_caregiver = Depends(get_current_caregiver)
             "total_patients": len(profile.get("patient_ids", []))
         }
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except HTTPException:
         raise
     except Exception as e:
@@ -436,6 +463,9 @@ async def delete_profile(current_caregiver = Depends(get_current_caregiver)):
             "message": "Account deleted successfully"
         }
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -463,6 +493,9 @@ async def lookup_caregiver(caregiver_id: str):
             "caregiver": result
         }
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except HTTPException:
         raise
     except Exception as e:
@@ -490,6 +523,9 @@ async def upload_profile_photo(
         
         return result
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -519,6 +555,9 @@ async def get_profile_photo(caregiver_id: str):
             headers={"Cache-Control": "public, max-age=3600"}
         )
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except HTTPException:
         raise
     except Exception as e:
@@ -546,6 +585,9 @@ async def get_patients_details(
             "total_patients": len(patients)
         }
         
+    except RuntimeError as e:
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(status_code=503, detail="Database not connected. Please try again later.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
