@@ -53,8 +53,9 @@ def check_hardcoded_correctness(question_type: str, transcript: str):
 
     # Spell WORLD backward
     if question_type == "spell_world":
+        joined = transcript.replace(" ", "")
         return {
-            "world_backward": "dlrow" in transcript
+            "world_backward": joined == "dlrow"
         }
 
     # Serial 7s
