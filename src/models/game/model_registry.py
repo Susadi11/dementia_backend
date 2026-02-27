@@ -92,10 +92,14 @@ def load_lstm_scaler():
 def load_risk_classifier():
     """
     Load Logistic Regression risk classifier.
-    Expected file: src/models/game/risk_classifier/logistic_regression_model.pkl
+    Expected file: src/models/game/risk_classifier/risk_logreg.pkl
+    Fallback:      src/models/game/risk_classifier/logistic_regression_model.pkl
     """
     try:
-        model_path = RISK_CLASSIFIER_DIR / "logistic_regression_model.pkl"
+        # Try new filename first, fallback to old filename
+        model_path = RISK_CLASSIFIER_DIR / "risk_logreg.pkl"
+        if not model_path.exists():
+            model_path = RISK_CLASSIFIER_DIR / "logistic_regression_model.pkl"
         
         if not model_path.exists():
             logger.warning("[WARNING] Risk classifier not found, using dummy classifier")
@@ -113,10 +117,14 @@ def load_risk_classifier():
 def load_risk_scaler():
     """
     Load scaler for risk classifier input features.
-    Expected file: src/models/game/risk_classifier/feature_scaler.pkl
+    Expected file: src/models/game/risk_classifier/risk_scaler.pkl
+    Fallback:      src/models/game/risk_classifier/feature_scaler.pkl
     """
     try:
-        scaler_path = RISK_CLASSIFIER_DIR / "feature_scaler.pkl"
+        # Try new filename first, fallback to old filename
+        scaler_path = RISK_CLASSIFIER_DIR / "risk_scaler.pkl"
+        if not scaler_path.exists():
+            scaler_path = RISK_CLASSIFIER_DIR / "feature_scaler.pkl"
         
         if not scaler_path.exists():
             logger.warning("[WARNING] Risk scaler not found, will skip scaling")
@@ -134,10 +142,14 @@ def load_risk_scaler():
 def load_label_encoder():
     """
     Load label encoder for risk classifier output labels.
-    Expected file: src/models/game/risk_classifier/label_encoder.pkl
+    Expected file: src/models/game/risk_classifier/risk_label_encoder.pkl
+    Fallback:      src/models/game/risk_classifier/label_encoder.pkl
     """
     try:
-        encoder_path = RISK_CLASSIFIER_DIR / "label_encoder.pkl"
+        # Try new filename first, fallback to old filename
+        encoder_path = RISK_CLASSIFIER_DIR / "risk_label_encoder.pkl"
+        if not encoder_path.exists():
+            encoder_path = RISK_CLASSIFIER_DIR / "label_encoder.pkl"
         
         if not encoder_path.exists():
             logger.warning("⚠ Label encoder not found, using default labels")
