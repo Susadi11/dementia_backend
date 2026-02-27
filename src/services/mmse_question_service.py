@@ -1,5 +1,5 @@
-from services.correctness_hardcoded import check_hardcoded_correctness
-from services.scoring_engine import calculate_score
+from .correctness_hardcoded import check_hardcoded_correctness
+from .scoring_engine import calculate_score
 
 
 def process_mmse_question(
