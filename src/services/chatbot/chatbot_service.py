@@ -73,10 +73,10 @@ class DementiaChatbot:
         # Get base model and adapter from registry or fallbacks
         if llama_model_info and llama_model_info.get("model_source") == "huggingface":
             registry_base_model = llama_model_info.get("base_model", "meta-llama/Llama-3.2-3B-Instruct")
-            registry_adapter = llama_model_info.get("lora_adapter", "susadi/llama-3.2-3b-dementia-care")
+            registry_adapter = llama_model_info.get("lora_adapter", "susadi/hale-empathy-3b")
         else:
             registry_base_model = "meta-llama/Llama-3.2-3B-Instruct"
-            registry_adapter = "susadi/llama-3.2-3b-dementia-care"
+            registry_adapter = "susadi/hale-empathy-3b"
 
         # Priority: passed args > env vars > registry > hardcoded defaults
         self.base_model_name = base_model_name or os.getenv("LLAMA_BASE_MODEL", registry_base_model)
@@ -178,7 +178,7 @@ class DementiaChatbot:
         user_id: str,
         session_id: Optional[str] = None,
         max_tokens: int = 150,
-        temperature: float = 0.7,
+        temperature: float = 0.5,
         top_p: float = 0.9,
         use_history: bool = True
     ) -> Dict[str, Any]:
@@ -206,6 +206,16 @@ class DementiaChatbot:
             if session_id not in self.conversation_history:
                 self.conversation_history[session_id] = []
 
+            # Adaptive max_tokens based on message length and type
+            msg_lower = user_message.lower().strip()
+            msg_word_count = len(msg_lower.split())
+            if msg_word_count <= 3:  # Short messages like "hi", "hello", "I feel sad"
+                max_tokens = min(max_tokens, 60)
+            elif '?' in user_message or any(msg_lower.startswith(q) for q in ['what', 'how', 'can', 'tell', 'explain', 'describe']):
+                max_tokens = min(max_tokens, 100)  # Questions get moderate length
+            else:
+                max_tokens = min(max_tokens, 80)  # Default moderate
+
             # Build conversation context
             if use_history and self.conversation_history[session_id]:
                 # Include recent conversation history (last 5 exchanges)
@@ -220,7 +230,7 @@ class DementiaChatbot:
                 prompt,
                 return_tensors="pt",
                 truncation=True,
-                max_length=512
+                max_length=1024
             ).to(self.device)
 
             # Prepare token IDs - ensure they are integers, not tuples/lists
@@ -265,6 +275,9 @@ class DementiaChatbot:
                     response_text = full_response_clean[len(prompt):].strip()
                 else:
                     response_text = full_response_clean.strip()
+
+            # Post-process: clean training data leakage and enforce brevity
+            response_text = self._clean_response(response_text)
 
             # Store in conversation history
             self.conversation_history[session_id].append(user_message)
@@ -426,20 +439,19 @@ class DementiaChatbot:
         if context["asking_datetime"] and context["current_datetime"]:
             datetime_info = f"\n\nCURRENT DATE AND TIME: {context['current_datetime']}\n- The user is asking about the date or time. Provide this information clearly."
 
-        base_prompt = """You are Hale, a friendly, intelligent conversational assistant for elderly individuals.
+        base_prompt = """You are Hale, a friendly AI care companion for elderly individuals.
 
-General rules:{introduction}
-- If the user greets, respond briefly and warmly.
-- If the user asks a question, answer clearly and directly.
-- If the user requests lists, steps, or points, respond in bullet points.
-- If the user shows confusion or memory difficulty, be calm, supportive, and reassuring.
-- If the user is emotional, respond empathetically before giving information.
-- Do NOT over-explain unless asked.
-- Use simple, clear language.
-- Adapt your response style naturally to the user's message.{datetime_info}
-
-User message:
-"{user_message}"
+CRITICAL RULES:{introduction}
+- Keep ALL responses SHORT: 2-3 sentences maximum.
+- For greetings, reply in ONE sentence only.
+- You are an AI assistant, NOT a human. Never claim to be a real person, therapist, or counselor.
+- NEVER mention personal details like your education, location, license, or experience.
+- NEVER share phone numbers, helpline numbers, or website URLs.
+- NEVER claim to be from a specific city, state, or country. You can answer questions about places if the user asks.
+- If the user is emotional, respond with warmth and empathy in 2-3 short sentences.
+- If the user asks a question, give a brief helpful answer.
+- Use simple, clear language suitable for elderly users.
+- Be warm but concise.{datetime_info}
 
 Context signals (for guidance only, not to be mentioned):
 - First message: {is_first_message}
@@ -495,6 +507,64 @@ Context signals (for guidance only, not to be mentioned):
 
         # Last resort: return cleaned full response
         return full_response.replace("<|eot_id|>", "").replace("<|end_of_text|>", "").strip()
+
+    def _clean_response(self, response: str) -> str:
+        """
+        Post-process response to remove training data leakage and enforce quality.
+        Removes phone numbers, personal identity claims, URLs, and location-specific content.
+        """
+        if not response:
+            return response
+
+        # 1. Remove phone numbers (any format)
+        response = re.sub(r'\b\d{1,2}[-.]?\d{3}[-.]?\d{3}[-.]?\d{4}\b', '', response)
+        response = re.sub(r'\b1-\d{3}-\d{3}-\d{4}\b', '', response)
+
+        # 2. Remove URLs and email addresses
+        response = re.sub(r'https?://\S+', '', response)
+        response = re.sub(r'www\.\S+', '', response)
+        response = re.sub(r'\S+@\S+\.\S+', '', response)
+
+        # 3. Remove therapist/counselor identity claims (training data leakage)
+        identity_patterns = [
+            r"I[' ]?a?m a (licensed|certified|professional|registered)[\w\s]*?(counselor|therapist|psychologist|social worker|clinician)[\w\s,]*?\.",
+            r"I have (a |an )?(Master'?s?|Bachelor'?s?|PhD|doctorate)[\w\s]*?(degree|in)[\w\s,]*?\.",
+            r"I[' ]?a?m licensed in[\w\s,]*?\.",
+            r"I have over \d+[\w\s]*?experience[\w\s,]*?\.",
+            r"I[' ]?a?m a (Texas|Georgia|Florida|California|New York)[\w\s]*?\.",
+            r"I[' ]?a?m a member of[\w\s,]*?\.",
+            r"I have worked with[\w\s,]*?(children|adolescents|adults|couples|families)[\w\s,]*?\.",
+            r"I am skilled in[\w\s,]*?\.",
+        ]
+        for pattern in identity_patterns:
+            response = re.sub(pattern, '', response, flags=re.IGNORECASE)
+
+        # 4. Remove references to specific organizations/helplines
+        helpline_patterns = [
+            r"(call|contact|reach out to)[\w\s]*?(NAMI|National Alliance|Suicide Prevention|Crisis|Helpline|Hotline)[\w\s,().\d-]*?\.",
+            r"(NAMI|National Alliance on Mental)[\w\s,().\d-]*?\.",
+        ]
+        for pattern in helpline_patterns:
+            response = re.sub(pattern, '', response, flags=re.IGNORECASE)
+
+        # 5. Clean up extra whitespace from removals
+        response = re.sub(r'\s{2,}', ' ', response)
+        response = re.sub(r'\s+\.', '.', response)
+        response = re.sub(r'\.\s*\.', '.', response)
+        response = response.strip()
+
+        # 6. Truncate at the last complete sentence (avoid cut-off text)
+        if response and response[-1] not in '.!?':
+            # Find the last sentence-ending punctuation
+            last_period = max(response.rfind('.'), response.rfind('!'), response.rfind('?'))
+            if last_period > 20:  # Only truncate if we have enough text
+                response = response[:last_period + 1]
+
+        # 7. If response is empty after cleaning, provide a fallback
+        if not response or len(response.strip()) < 5:
+            response = "I hear you. How can I help you today?"
+
+        return response.strip()
 
     def _check_safety(self, response: str, user_message: str) -> Optional[list]:
         """

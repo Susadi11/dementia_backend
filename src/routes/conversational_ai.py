@@ -31,7 +31,7 @@ class TextQuery(BaseModel):
     message: str = Field(..., description="User's message text", alias="text")
     session_id: Optional[str] = Field(None, description="Optional session ID for conversation continuity")
     max_tokens: int = Field(150, ge=50, le=500, description="Maximum tokens to generate")
-    temperature: float = Field(0.7, ge=0.1, le=2.0, description="Sampling temperature")
+    temperature: float = Field(0.5, ge=0.1, le=2.0, description="Sampling temperature")
     use_history: bool = Field(True, description="Use conversation history")
 
     class Config:
