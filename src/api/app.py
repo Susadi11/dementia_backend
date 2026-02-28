@@ -33,6 +33,7 @@ else:
 
 from src.features.conversational_ai.feature_extractor import FeatureExtractor
 from src.models.conversational_ai.model_utils import DementiaPredictor
+from src.features.MMSE_Screening_Test.mmse_routes import router as mmse_router
 # Temporarily disable audio processing due to dependency issues
 # from src.preprocessing.voice_processor import get_voice_processor
 # from src.preprocessing.audio_models import get_db_manager
@@ -86,6 +87,7 @@ else:
 app.include_router(healthcheck.router)
 app.include_router(conversational_ai.router)
 app.include_router(reminder_routes.router)
+app.include_router(mmse_router)
 app.include_router(websocket_routes.ws_router)  # WebSocket for real-time reminders
 app.include_router(detection_routes.router)  # Detection sessions routes
 
