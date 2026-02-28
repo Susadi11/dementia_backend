@@ -736,7 +736,9 @@ async def startup_event():
         # Create indexes for better performance
         await Database.create_indexes()
         logger.info("[SUCCESS] MongoDB connected (conversational AI collections)")
-    except Exception as e:
+    except BaseException as e:
+        # Catch BaseException so asyncio.CancelledError (inherits BaseException, not Exception
+        # in Python 3.8+) does not propagate and kill the entire server startup.
         logger.error(f"MongoDB connection failed: {e}")
         logger.warning("API will continue without database connection")
 

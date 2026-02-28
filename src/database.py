@@ -5,6 +5,7 @@ Handles connection to MongoDB Atlas cluster
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import ConnectionFailure
+import asyncio
 import logging
 import os
 from typing import Optional
@@ -43,8 +44,8 @@ class Database:
                 connectTimeoutMS=10000
             )
 
-            # Test the connection
-            await cls.client.admin.command('ping')
+            # Test the connection (timeout guards against asyncio.CancelledError on slow Atlas)
+            await asyncio.wait_for(cls.client.admin.command('ping'), timeout=15)
 
             # Get database
             cls.db = cls.client[db_name]
@@ -54,6 +55,14 @@ class Database:
 
             return True
 
+        except asyncio.CancelledError:
+            logger.error("MongoDB ping was cancelled (server startup interrupted)")
+            print("❌ ERROR: MongoDB connection ping was cancelled")
+            raise
+        except asyncio.TimeoutError:
+            logger.error("MongoDB connection timed out after 15 seconds")
+            print("❌ FAILED: MongoDB connection timed out")
+            raise ConnectionFailure("MongoDB ping timed out")
         except ConnectionFailure as e:
             logger.error(f"Failed to connect to MongoDB: {e}")
             print(f"❌ FAILED: Could not connect to MongoDB: {e}")

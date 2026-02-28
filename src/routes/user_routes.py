@@ -11,7 +11,7 @@ import logging
 from ..services.user_service import get_user_service
 from ..services.caregiver_service import get_caregiver_service
 from ..database import Database
-from ..utils.auth import verify_token, refresh_access_token
+from ..utils.auth import verify_token, refresh_access_token, create_access_token, create_refresh_token
 
 logger = logging.getLogger(__name__)
 
@@ -145,13 +145,18 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
     
     try:
         # Extract token from "Bearer <token>"
-        token = authorization.replace("Bearer ", "")
+        token = authorization.replace("Bearer ", "").strip()
         payload = verify_token(token)
+        
+        if payload is None:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
         
         if payload.get("role") != "user":
             raise HTTPException(status_code=403, detail="Not authorized as user")
         
         return payload
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Token verification failed: {e}")
         raise HTTPException(status_code=401, detail="Invalid or expired token")
@@ -164,7 +169,8 @@ async def register_user(request: UserRegisterRequest):
     """
     Register a new user account
     
-    Returns user ID and profile information
+    Returns user ID, profile information, and JWT tokens so the user is
+    immediately authenticated after sign-up (no separate login required).
     """
     try:
         service = get_user_service()
@@ -184,9 +190,20 @@ async def register_user(request: UserRegisterRequest):
             caregiver_id=request.caregiver_id
         )
         
+        user_id = user.get("user_id")
+        access_token = create_access_token(
+            data={"user_id": user_id, "role": "user"}
+        )
+        refresh_token = create_refresh_token(
+            data={"user_id": user_id, "role": "user"}
+        )
+        
         return {
             "success": True,
             "message": "User registered successfully",
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
             "user": user
         }
         

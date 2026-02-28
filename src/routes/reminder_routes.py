@@ -623,9 +623,12 @@ async def get_due_reminders_now(user_id: str, time_window_minutes: int = 5):
     try:
         db_service = get_db_service()
         
-        # Get reminders due within the time window
+        # Get reminders due within the time window (filtered by user_id in DB)
         try:
-            due_reminders = await db_service.get_due_reminders(time_window_minutes)
+            due_reminders = await db_service.get_due_reminders(
+                time_window_minutes=time_window_minutes,
+                user_id=user_id
+            )
         except RuntimeError as db_error:
             logger.error(f"Database not connected: {db_error}")
             return {
@@ -635,29 +638,36 @@ async def get_due_reminders_now(user_id: str, time_window_minutes: int = 5):
                 "due_reminders": [],
                 "should_trigger_alarm": False
             }
+
+        # Already filtered by user_id at the DB level
+        user_due_reminders = due_reminders
         
-        # Filter for this specific user
-        user_due_reminders = [r for r in due_reminders if r.get("user_id") == user_id]
-        
-        # Check if any are due RIGHT NOW (within 1 minute)
+        # Check if any are due RIGHT NOW (within the lookback window or upcoming <=1 min)
+        # Use datetime.now() — matches how scheduled_time is stored (naive local time)
         now = datetime.now()
         urgent_reminders = []
         for reminder in user_due_reminders:
             scheduled_time = reminder.get("scheduled_time")
-            
+
             # Handle both string and datetime objects
             if isinstance(scheduled_time, str):
                 try:
                     scheduled_time = datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
-                except:
+                    # Strip tz for naive-local comparison
+                    if scheduled_time.tzinfo is not None:
+                        from datetime import timezone
+                        scheduled_time = scheduled_time.astimezone(timezone.utc).replace(tzinfo=None)
+                except Exception:
                     continue  # Skip if can't parse
             elif not isinstance(scheduled_time, datetime):
                 continue  # Skip if not string or datetime
-            
+
             time_diff = (scheduled_time - now).total_seconds() / 60.0  # in minutes
-            
-            # If within 1 minute of scheduled time, it's urgent
-            if -1 <= time_diff <= 1:
+
+            # Trigger alarm for:
+            #   - Already past (up to 10 min ago) — catches reminders missed during gaps/restarts
+            #   - About to fire (within next 1 min) — early alert
+            if -10 <= time_diff <= 1:
                 # Convert datetime to ISO string for JSON response
                 reminder_copy = reminder.copy()
                 if isinstance(reminder_copy.get("scheduled_time"), datetime):

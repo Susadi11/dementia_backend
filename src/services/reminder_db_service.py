@@ -166,30 +166,49 @@ class ReminderDatabaseService:
             logger.error(f"Error getting reminders for user {user_id}: {e}")
             return []
 
-    async def get_due_reminders(self, time_window_minutes: int = 5) -> List[Dict[str, Any]]:
-        """Get reminders due within the specified time window."""
+    async def get_due_reminders(
+        self,
+        time_window_minutes: int = 5,
+        user_id: Optional[str] = None,
+        lookback_minutes: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Get reminders due within the specified time window.
+
+        Uses datetime.now() (naive local time) to match how scheduled_time is
+        stored when reminders are created. Includes a lookback window
+        (default 10 min) so reminders are not silently dropped during polling
+        gaps, server restarts, or brief network outages.
+        """
         try:
-            current_time = datetime.now()
+            current_time = datetime.now()  # naive local time — matches stored values
+            window_start = current_time - timedelta(minutes=lookback_minutes)
             window_end = current_time + timedelta(minutes=time_window_minutes)
-            
+
             query = {
                 "scheduled_time": {
-                    "$gte": current_time,
+                    "$gte": window_start,
                     "$lte": window_end
                 },
                 "status": "active"
             }
-            
+
+            if user_id:
+                query["user_id"] = user_id
+
             cursor = self.reminders_collection.find(query).sort("scheduled_time", 1)
-            
+
             reminders = []
             async for doc in cursor:
                 doc["id"] = str(doc.pop("_id"))
                 reminders.append(doc)
-                
-            logger.info(f"Found {len(reminders)} due reminders between {current_time} and {window_end}")
+
+            logger.info(
+                f"Found {len(reminders)} due reminders between {window_start} and {window_end}"
+                + (f" for user {user_id}" if user_id else "")
+            )
             return reminders
-            
+
         except Exception as e:
             logger.error(f"Error getting due reminders: {e}")
             return []
