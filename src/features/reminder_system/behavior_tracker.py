@@ -332,8 +332,8 @@ class BehaviorTracker:
         if ignored / total > 0.6:
             return True
         
-        # High confusion rate
-        if confused / total > 0.4:
+        # High confusion rate (more than 1/3 confused responses)
+        if confused / total > 0.33:
             return True
         
         # High cognitive risk

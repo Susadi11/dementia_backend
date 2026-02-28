@@ -1,5 +1,5 @@
 {
-  "training_date": "2025-12-23T01:33:35.280740",
+  "training_date": "2026-01-03T16:37:47.193550",
   "data_sources": [
     "synthetic",
     "pitt_corpus"
@@ -81,14 +81,14 @@
       "best_score": 1.0,
       "results": {
         "random_forest": {
-          "cv_score_mean": 0.9999832787416836,
-          "cv_score_std": 3.084128009977469e-05,
-          "test_score": 0.9999989224053939
+          "cv_score_mean": 0.9999959136318051,
+          "cv_score_std": 5.133266371186702e-06,
+          "test_score": 0.9999995379118338
         },
         "gradient_boosting": {
-          "cv_score_mean": 0.9999661925178656,
-          "cv_score_std": 5.513864769441346e-05,
-          "test_score": 0.9999939980847837
+          "cv_score_mean": 0.9999815197195383,
+          "cv_score_std": 2.4054585114413976e-05,
+          "test_score": 0.99999430554248
         },
         "linear_regression": {
           "cv_score_mean": 1.0,
@@ -123,8 +123,8 @@
       "best_score": 1.0,
       "results": {
         "random_forest": {
-          "cv_score_mean": 0.9988593155893536,
-          "cv_score_std": 0.0015209125475285246,
+          "cv_score_mean": 0.9992395437262356,
+          "cv_score_std": 0.0015209125475285302,
           "test_score": 0.9969604863221885
         },
         "gradient_boosting": {

@@ -1,0 +1,125 @@
+{
+  "user_id": "patient_demo_001",
+  "report_period_start": "2025-12-27T14:02:56.093711",
+  "report_period_end": "2026-01-03T14:02:56.093711",
+  "generated_at": "2026-01-03T14:02:56.094773",
+  "total_reminders": 19,
+  "completed_reminders": 14,
+  "missed_reminders": 2,
+  "completion_rate": 0.7368421052631579,
+  "avg_cognitive_risk_score": 0.3589473684210526,
+  "peak_cognitive_risk_score": 0.73,
+  "lowest_cognitive_risk_score": 0.14,
+  "risk_trend": "stable",
+  "confusion_count": 2,
+  "memory_issue_count": 3,
+  "confirmed_count": 14,
+  "ignored_count": 2,
+  "delayed_count": 1,
+  "daily_summaries": [
+    {
+      "date": "2025-12-27",
+      "avg_cognitive_risk": 0.25,
+      "confusion_count": 0,
+      "total_interactions": 1,
+      "completion_rate": 1.0,
+      "alert_count": 0
+    },
+    {
+      "date": "2025-12-28",
+      "avg_cognitive_risk": 0.22333333333333336,
+      "confusion_count": 0,
+      "total_interactions": 3,
+      "completion_rate": 1.0,
+      "alert_count": 0
+    },
+    {
+      "date": "2025-12-29",
+      "avg_cognitive_risk": 0.28,
+      "confusion_count": 0,
+      "total_interactions": 3,
+      "completion_rate": 1.0,
+      "alert_count": 0
+    },
+    {
+      "date": "2025-12-30",
+      "avg_cognitive_risk": 0.33666666666666667,
+      "confusion_count": 0,
+      "total_interactions": 3,
+      "completion_rate": 1.0,
+      "alert_count": 0
+    },
+    {
+      "date": "2025-12-31",
+      "avg_cognitive_risk": 0.39333333333333337,
+      "confusion_count": 0,
+      "total_interactions": 3,
+      "completion_rate": 1.0,
+      "alert_count": 0
+    },
+    {
+      "date": "2026-01-01",
+      "avg_cognitive_risk": 0.45,
+      "confusion_count": 1,
+      "total_interactions": 3,
+      "completion_rate": 0.3333333333333333,
+      "alert_count": 0
+    },
+    {
+      "date": "2026-01-02",
+      "avg_cognitive_risk": 0.5066666666666667,
+      "confusion_count": 1,
+      "total_interactions": 3,
+      "completion_rate": 0.0,
+      "alert_count": 0
+    },
+    {
+      "date": "2026-01-03",
+      "avg_cognitive_risk": 0.0,
+      "confusion_count": 0,
+      "total_interactions": 0,
+      "completion_rate": 0.0,
+      "alert_count": 0
+    }
+  ],
+  "total_alerts": 0,
+  "critical_alerts": 0,
+  "high_priority_alerts": 0,
+  "unresolved_alerts": 0,
+  "best_response_hours": [
+    12,
+    20,
+    8
+  ],
+  "worst_response_hours": [
+    12,
+    20,
+    8
+  ],
+  "avg_response_time_seconds": 71.05263157894737,
+  "category_breakdown": {
+    "medication": {
+      "total": 13,
+      "completed": 9,
+      "confused": 2,
+      "completion_rate": 0.6923076923076923,
+      "avg_risk": 0.41384615384615386
+    },
+    "meal": {
+      "total": 6,
+      "completed": 5,
+      "confused": 0,
+      "completion_rate": 0.8333333333333334,
+      "avg_risk": 0.24
+    }
+  },
+  "risk_level": "low",
+  "recommendations": [
+    "\u23f0 Poor performance during 12:00, 20:00, 8:00. Reschedule critical reminders to optimal times.",
+    "\u2705 Best performance at 12:00, 20:00, 8:00. Schedule important reminders during these hours."
+  ],
+  "intervention_needed": false,
+  "escalation_required": false,
+  "previous_week_avg_risk": null,
+  "risk_change_percentage": null
+}

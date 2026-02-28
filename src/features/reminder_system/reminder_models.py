@@ -91,6 +91,7 @@ class ReminderInteraction(BaseModel):
     id: Optional[str] = None
     reminder_id: str
     user_id: str
+    reminder_category: Optional[str] = None
     
     # Interaction details
     interaction_type: InteractionType
@@ -181,6 +182,7 @@ class CaregiverAlert(BaseModel):
     missed_count: int = 0
     cognitive_risk_score: Optional[float] = None
     user_response: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
     
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.now)

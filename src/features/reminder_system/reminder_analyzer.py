@@ -46,15 +46,15 @@ class PittBasedReminderAnalyzer:
         if use_enhanced_models:
             try:
                 self.enhanced_models = EnhancedModelLoader()
-                logger.info("✅ Enhanced models with Pitt Corpus integration loaded")
+                logger.info("[SUCCESS] Enhanced models with Pitt Corpus integration loaded")
                 
                 # Log model info
                 model_info = self.enhanced_models.get_model_info()
-                logger.info(f"📊 Models trained on {model_info['total_samples']} samples")
+                logger.info(f"[INFO] Models trained on {model_info['total_samples']} samples")
                 logger.info(f"🏆 Models available: {', '.join(model_info['models_loaded'])}")
                 
             except Exception as e:
-                logger.error(f"❌ Failed to load enhanced models: {e}")
+                logger.error(f"[ERROR] Failed to load enhanced models: {e}")
                 self.enhanced_models = None
                 use_enhanced_models = False
                 
@@ -68,6 +68,35 @@ class PittBasedReminderAnalyzer:
             except Exception as e:
                 logger.warning(f"Could not load legacy model from {model_path}: {e}")
                 self.model = None
+    
+    def extract_pitt_inspired_features(self, text: str) -> Dict[str, float]:
+        """
+        Extract Pitt Corpus-inspired linguistic features from text.
+        
+        Args:
+            text: Input text to analyze
+        
+        Returns:
+            Dictionary of feature names and values
+        """
+        try:
+            # Extract features using the feature extractor
+            features = self.feature_extractor.extract_features(text)
+            
+            # Return linguistic and cognitive features
+            return {
+                'filler_words': features.get('filler_word_ratio', 0.0),
+                'pauses': features.get('pause_count', 0),
+                'repetitions': features.get('repetition_count', 0),
+                'word_count': features.get('word_count', 0),
+                'unique_words': features.get('unique_word_count', 0),
+                'lexical_diversity': features.get('lexical_diversity', 0.0),
+                'sentiment_score': features.get('sentiment', 0.0),
+                'confusion_markers': features.get('confusion_indicators', 0)
+            }
+        except Exception as e:
+            logger.error(f"Error extracting Pitt features: {e}")
+            return {'filler_words': 0.0}
     
     def analyze_reminder_response(
         self,
@@ -157,7 +186,7 @@ class PittBasedReminderAnalyzer:
                     
                     model_confidence = float(np.mean([confusion_conf, risk_conf, caregiver_conf, response_conf]))
                     
-                    logger.info(f"✅ Enhanced model predictions: confusion={confusion_pred}, risk={risk_pred}, caregiver={caregiver_pred}")
+                    logger.info(f"[SUCCESS] Enhanced model predictions: confusion={confusion_pred}, risk={risk_pred}, caregiver={caregiver_pred}")
                     
                 except Exception as e:
                     logger.warning(f"Enhanced model prediction failed: {e}")
@@ -228,6 +257,16 @@ class PittBasedReminderAnalyzer:
         ]
         response_lower = response_text.lower()
         if any(keyword in response_lower for keyword in confusion_keywords):
+            return True
+        
+        # Check for uncertainty + contradiction pattern (indicates confusion)
+        # e.g., "I think I did... or maybe not?" = uncertain about action status
+        uncertainty_words = ['maybe', 'i think', 'probably', 'not sure', 'perhaps']
+        negation_words = ['maybe not', 'or not', 'or maybe', 'not?', '?']
+        has_uncertainty = any(word in response_lower for word in uncertainty_words)
+        has_negation = any(word in response_lower for word in negation_words)
+        
+        if has_uncertainty and has_negation:
             return True
         
         return False

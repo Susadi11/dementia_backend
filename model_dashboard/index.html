@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Dashboard - Dementia Detection</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+    <!-- ApexCharts for interactive visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- LIST VIEW -->
+        <div id="listView" class="view">
+            <div class="container">
+                <!-- Header -->
+                <header class="header">
+                    <div class="header-content">
+                        <h1 class="title">Model Dashboard</h1>
+                        <p class="subtitle">Dementia Detection & Monitoring System</p>
+                        <div class="stats-row">
+                            <div class="stat-card">
+                                <div class="stat-value" id="totalModels">-</div>
+                                <div class="stat-label">Total Models</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="lastUpdated">-</div>
+                                <div class="stat-label">Last Updated</div>
+                            </div>
+                        </div>
+                    </div>
+                </header>
+
+                <!-- Filters -->
+                <div class="filters">
+                    <button class="filter-btn active" data-category="all">All Models</button>
+                    <button class="filter-btn" data-category="Conversational AI">Conversational AI</button>
+                    <button class="filter-btn" data-category="Reminder System">Reminder System</button>
+                    <button class="filter-btn" data-category="Game">Game</button>
+                </div>
+
+                <!-- Models Grid -->
+                <div class="models-grid" id="modelsGrid">
+                    <!-- Models will be loaded here dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- DETAIL VIEW -->
+        <div id="detailView" class="view" style="display: none;">
+            <div class="detail-container">
+                <!-- Back Button -->
+                <button id="backButton" class="back-button">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>All Models</span>
+                </button>
+
+                <!-- Detail Content -->
+                <div id="detailContent" class="detail-content">
+                    <!-- Model details will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

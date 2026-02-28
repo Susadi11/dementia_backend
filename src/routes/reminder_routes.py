@@ -10,10 +10,15 @@ Provides endpoints for:
 - Caregiver notifications
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
+import uuid
+import tempfile
+import os
+import statistics
+from pathlib import Path
 
 from src.features.reminder_system import (
     Reminder, ReminderCommand, ReminderResponse, ReminderInteraction,
@@ -21,10 +26,25 @@ from src.features.reminder_system import (
 )
 from src.features.reminder_system.caregiver_notifier import CaregiverNotifier
 from src.features.reminder_system.reminder_models import (
-    ReminderStatus, ReminderPriority, CaregiverAlert
+    ReminderStatus, ReminderPriority, CaregiverAlert, InteractionType
 )
+from src.features.reminder_system.weekly_report_generator import (
+    WeeklyReportGenerator, WeeklyCognitiveReport
+)
+from src.services.reminder_db_service import ReminderDatabaseService
+from src.services.chatbot import get_whisper_service
+from src.features.conversational_ai.nlp.nlp_engine import NLPEngine
 
 logger = logging.getLogger(__name__)
+
+# Try to import BERT parser (optional, falls back to regex)
+try:
+    from src.features.reminder_system.bert_text_parser import get_bert_parser
+    BERT_AVAILABLE = True
+    logger.info("✅ BERT text parser available")
+except ImportError:
+    BERT_AVAILABLE = False
+    logger.info("⚠️ BERT not available, using regex parser")
 
 # Create router
 router = APIRouter(prefix="/api/reminders", tags=["reminders"])
@@ -34,6 +54,237 @@ reminder_analyzer = PittBasedReminderAnalyzer()
 behavior_tracker = BehaviorTracker()
 scheduler = AdaptiveReminderScheduler(behavior_tracker, reminder_analyzer)
 caregiver_notifier = CaregiverNotifier()
+report_generator = WeeklyReportGenerator(behavior_tracker)
+nlp_engine = NLPEngine()
+
+# Database service - initialized lazily
+_db_service = None
+_bert_parser = None
+
+def _parse_reminder_from_text(
+    text: str,
+    user_id: str,
+    priority_override: Optional[str] = None
+) -> dict:
+    """
+    Parse reminder details from natural language text using NLP.
+    
+    Uses BERT-based parser if available, falls back to regex patterns.
+    
+    Extracts:
+    - Title and description
+    - Category (medication, appointment, meal, etc.)
+    - Time/date information
+    - Recurrence pattern
+    - Priority level
+    """
+    # Try BERT parser first (more accurate)
+    if BERT_AVAILABLE:
+        try:
+            global _bert_parser
+            if _bert_parser is None:
+                _bert_parser = get_bert_parser()
+            
+            result = _bert_parser.parse_reminder(text, user_id, priority_override)
+            logger.info(f"✅ BERT parsed: {result['category']} at {result['scheduled_time']}")
+            return result
+        except Exception as e:
+            logger.warning(f"BERT parsing failed, falling back to regex: {e}")
+    
+    # Fallback to regex-based parsing
+    return _parse_reminder_regex(text, user_id, priority_override)
+
+
+def _parse_reminder_regex(
+    text: str,
+    user_id: str,
+    priority_override: Optional[str] = None
+) -> dict:
+    """
+    Regex-based parsing (fallback method).
+    
+    Extracts:
+    - Title and description
+    - Category (medication, appointment, meal, etc.)
+    - Time/date information
+    - Recurrence pattern
+    - Priority level
+    """
+    from datetime import timedelta
+    import re
+    
+    text_lower = text.lower()
+    
+    # Extract category based on keywords
+    category = "general"
+    if any(word in text_lower for word in ["medicine", "medication", "pill", "tablet", "drug"]):
+        category = "medication"
+    elif any(word in text_lower for word in ["doctor", "appointment", "visit", "checkup"]):
+        category = "appointment"
+    elif any(word in text_lower for word in ["breakfast", "lunch", "dinner", "meal", "eat"]):
+        category = "meal"
+    elif any(word in text_lower for word in ["shower", "bath", "hygiene", "brush", "wash"]):
+        category = "hygiene"
+    elif any(word in text_lower for word in ["exercise", "walk", "activity"]):
+        category = "activity"
+    
+    # Extract priority
+    priority = priority_override or "medium"
+    if any(word in text_lower for word in ["urgent", "critical", "important", "asap"]):
+        priority = "high"
+    elif any(word in text_lower for word in ["when you can", "sometime", "eventually"]):
+        priority = "low"
+    
+    # Extract recurrence pattern
+    recurrence = None
+    if any(word in text_lower for word in ["every day", "daily", "everyday"]):
+        recurrence = "daily"
+    elif any(word in text_lower for word in ["every week", "weekly"]):
+        recurrence = "weekly"
+    elif any(word in text_lower for word in ["every month", "monthly"]):
+        recurrence = "monthly"
+    
+    # Extract DATE information first
+    days_offset = 0
+    now = datetime.now()
+    
+    # Check for relative day references
+    if "tomorrow" in text_lower:
+        days_offset = 1
+    elif "day after tomorrow" in text_lower:
+        days_offset = 2
+    elif "today" in text_lower:
+        days_offset = 0
+    elif "next week" in text_lower:
+        days_offset = 7
+    
+    # Check for specific weekdays
+    weekdays = {
+        'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+        'friday': 4, 'saturday': 5, 'sunday': 6
+    }
+    
+    for day_name, day_num in weekdays.items():
+        if day_name in text_lower:
+            current_weekday = now.weekday()
+            days_until = (day_num - current_weekday) % 7
+            if days_until == 0:  # If it's today, assume next week
+                days_until = 7
+            days_offset = days_until
+            break
+    
+    # Extract TIME information
+    hour = None
+    minute = 0
+    time_found = False
+    
+    # Look for time patterns like "6 PM", "6:00 PM", "6.00 PM", "18:00"
+    time_patterns = [
+        (r'(\d{1,2})\s*[:\.]\s*(\d{2})\s*(am|pm|a\.m\.|p\.m\.)', 3),  # 6:00 PM, 6.00 PM
+        (r'(\d{1,2})\s*(am|pm|a\.m\.|p\.m\.)', 2),  # 6 PM, 6 pm
+        (r'(\d{1,2})\s*[:\.]\s*(\d{2})\b', 2),  # 18:00 (24-hour format)
+        (r'at\s+(\d{1,2})(?:\s*o\'?clock)?', 1),  # at 6 o'clock
+    ]
+    
+    for pattern, group_count in time_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            try:
+                if group_count == 3:  # HH:MM AM/PM
+                    hour = int(match.group(1))
+                    minute = int(match.group(2))
+                    period = match.group(3).lower().replace('.', '')
+                    if period in ['pm', 'pm']:
+                        if hour < 12:
+                            hour += 12
+                    elif period in ['am', 'am']:
+                        if hour == 12:
+                            hour = 0
+                    time_found = True
+                elif group_count == 2 and match.group(2) in ['am', 'pm', 'a.m.', 'p.m.']:  # HH AM/PM
+                    hour = int(match.group(1))
+                    minute = 0
+                    period = match.group(2).lower().replace('.', '')
+                    if period in ['pm', 'pm']:
+                        if hour < 12:
+                            hour += 12
+                    elif period in ['am', 'am']:
+                        if hour == 12:
+                            hour = 0
+                    time_found = True
+                elif group_count == 2:  # 24-hour format HH:MM
+                    hour = int(match.group(1))
+                    minute = int(match.group(2))
+                    time_found = True
+                else:  # Just hour with "at"
+                    hour = int(match.group(1))
+                    minute = 0
+                    # Assume PM if hour < 8 (for afternoon/evening reminders)
+                    if hour < 8:
+                        hour += 12
+                    time_found = True
+                break
+            except (ValueError, AttributeError, IndexError):
+                pass
+    
+    # Special time keywords (only if no specific time found)
+    if not time_found:
+        if "noon" in text_lower or "lunch time" in text_lower:
+            hour, minute = 12, 0
+            time_found = True
+        elif "morning" in text_lower:
+            hour, minute = 8, 0
+            time_found = True
+        elif "evening" in text_lower:
+            hour, minute = 18, 0
+            time_found = True
+        elif "night" in text_lower or "bedtime" in text_lower:
+            hour, minute = 21, 0
+            time_found = True
+    
+    # Build the scheduled_time
+    if time_found and hour is not None:
+        # Create time for base date + days_offset
+        base_date = now + timedelta(days=days_offset)
+        scheduled_time = base_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        
+        # If no explicit date was mentioned and time has passed today, schedule for tomorrow
+        if days_offset == 0 and scheduled_time < now:
+            scheduled_time += timedelta(days=1)
+    else:
+        # Default: 1 hour from now
+        scheduled_time = now + timedelta(hours=1)
+        scheduled_time = scheduled_time.replace(second=0, microsecond=0)
+    
+    # Generate title (extract main action)
+    title = text[:50]  # First 50 chars
+    if category == "medication":
+        title = "Take Medication"
+    elif category == "appointment":
+        title = "Appointment Reminder"
+    elif category == "meal":
+        title = "Meal Reminder"
+    
+    # Add time context to title if recurrence exists
+    if recurrence:
+        title = f"{title} ({recurrence.capitalize()})"
+    
+    return {
+        "title": title,
+        "description": text,
+        "category": category,
+        "priority": priority,
+        "scheduled_time": scheduled_time,
+        "recurrence": recurrence
+    }
+
+
+def get_db_service():
+    """Get database service instance (lazy initialization)."""
+    global _db_service
+    if _db_service is None:
+        _db_service = ReminderDatabaseService()
+    return _db_service
 
 
 @router.post("/create", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -50,19 +301,25 @@ async def create_reminder(reminder: Reminder):
     - **caregiver_ids**: List of caregiver IDs to notify
     """
     try:
+        # Auto-generate ID if not provided
+        if not reminder.id:
+            reminder.id = f"reminder_{uuid.uuid4().hex[:12]}"
+        
         # Set creation timestamps
         reminder.created_at = datetime.now()
         reminder.updated_at = datetime.now()
         
-        # TODO: Save to database
-        # db_service.save_reminder(reminder.dict())
+        # Save to MongoDB database
+        db_service = get_db_service()
+        db_result = await db_service.create_reminder(reminder)
         
         logger.info(f"Created reminder {reminder.id} for user {reminder.user_id}")
         
         return {
             "status": "success",
             "message": "Reminder created successfully",
-            "reminder": reminder.dict()
+            "reminder": reminder.dict(),
+            "database_id": db_result.get("id")
         }
         
     except Exception as e:
@@ -73,10 +330,138 @@ async def create_reminder(reminder: Reminder):
         )
 
 
+@router.post("/create-from-audio", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def create_reminder_from_audio(
+    user_id: str = Form(..., description="User identifier"),
+    file: UploadFile = File(..., description="Audio file (wav, mp3, m4a, ogg, flac)"),
+    priority: Optional[str] = Form("medium", description="Reminder priority (low, medium, high, critical)"),
+    caregiver_ids: Optional[str] = Form(None, description="Comma-separated caregiver IDs")
+):
+    """
+    Create reminder from audio recording using Whisper transcription + NLP parsing.
+    
+    **Flow:**
+    1. Upload audio file
+    2. Transcribe using Whisper (local, free)
+    3. Parse reminder details from transcription (NLP)
+    4. Create reminder automatically
+    
+    **Example audio commands:**
+    - "Remind me to take my blood pressure medicine at 8 AM every morning"
+    - "Set a reminder for doctor appointment next Tuesday at 2 PM"
+    - "I need to remember my lunch at noon daily"
+    
+    **Parameters:**
+    - **user_id**: User identifier
+    - **file**: Audio file containing the reminder command
+    - **priority**: Optional priority override (default: extracted from audio)
+    - **caregiver_ids**: Optional caregiver IDs to notify (comma-separated)
+    """
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No audio file provided")
+        
+        logger.info(f"Creating reminder from audio for user: {user_id}")
+        
+        # Get file extension
+        file_ext = Path(file.filename).suffix or ".wav"
+        
+        # Log file size
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(0)
+        logger.info(f"Processing audio file... Size: {file_size} bytes")
+        
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_audio:
+            content = await file.read()
+            temp_audio.write(content)
+            temp_audio_path = temp_audio.name
+        
+        try:
+            # Step 1: Transcribe audio using Whisper
+            logger.info("📝 Transcribing audio with Whisper...")
+            whisper_service = get_whisper_service()
+            transcription_result = whisper_service.transcribe(
+                audio_path=temp_audio_path,
+                language=None  # Auto-detect
+            )
+            
+            transcribed_text = transcription_result["text"]
+            logger.info(f"✅ Transcription: '{transcribed_text}'")
+            
+            if not transcribed_text.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not transcribe audio. Please ensure clear speech."
+                )
+            
+            # Step 2: Parse reminder details using NLP
+            logger.info("🧠 Parsing reminder details from transcription...")
+            reminder_details = _parse_reminder_from_text(
+                text=transcribed_text,
+                user_id=user_id,
+                priority_override=priority
+            )
+            
+            # Step 3: Create reminder
+            reminder_id = f"reminder_{uuid.uuid4().hex[:12]}"
+            
+            # Parse caregiver IDs if provided
+            caregiver_list = []
+            if caregiver_ids:
+                caregiver_list = [cid.strip() for cid in caregiver_ids.split(",") if cid.strip()]
+            
+            reminder = Reminder(
+                id=reminder_id,
+                user_id=user_id,
+                title=reminder_details["title"],
+                description=reminder_details["description"],
+                scheduled_time=reminder_details["scheduled_time"],
+                priority=ReminderPriority(reminder_details["priority"]),
+                category=reminder_details["category"],
+                recurrence=reminder_details.get("recurrence"),
+                caregiver_ids=caregiver_list,
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+            
+            # Save to database
+            db_service = get_db_service()
+            db_result = await db_service.create_reminder(reminder)
+            
+            logger.info(f"✅ Reminder created from audio: {reminder_id}")
+            
+            return {
+                "status": "success",
+                "message": "Reminder created successfully from audio",
+                "reminder": reminder.dict(),
+                "transcription": transcribed_text,
+                "audio_file": file.filename,
+                "db_status": db_result
+            }
+            
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_audio_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete temp file: {e}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating reminder from audio: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process audio: {str(e)}"
+        )
+
+
 @router.post("/natural-language", response_model=dict)
 async def create_reminder_from_natural_language(command: ReminderCommand):
     """
-    Create reminder from natural language command using NLP.
+    Create reminder from natural language text command using NLP.
     
     Examples:
     - "Remind me to take my tablets after lunch"
@@ -88,29 +473,19 @@ async def create_reminder_from_natural_language(command: ReminderCommand):
     - **audio_path**: Optional audio recording path
     """
     try:
-        # Parse natural language command
-        # TODO: Implement NLP-based command parsing
-        # This would use BERT to extract:
-        # - Action (medication, appointment, meal, etc.)
-        # - Time/date information
-        # - Repetition pattern
-        # - Priority indicators
+        logger.info(f"Parsing natural language command for user {command.user_id}")
         
-        # For now, return a placeholder
-        parsed_reminder = {
-            "user_id": command.user_id,
-            "title": "Extracted from: " + command.command_text,
-            "description": command.command_text,
-            "scheduled_time": datetime.now(),
-            "category": "general",
-            "priority": "medium"
-        }
+        # Parse natural language command
+        parsed_reminder = _parse_reminder_from_text(
+            text=command.command_text,
+            user_id=command.user_id
+        )
         
         logger.info(f"Parsed NL command for user {command.user_id}")
         
         return {
             "status": "success",
-            "message": "Reminder created from natural language",
+            "message": "Reminder parsed from natural language",
             "parsed_reminder": parsed_reminder,
             "original_command": command.command_text
         }
@@ -180,7 +555,7 @@ async def process_reminder_response(response: ReminderResponse):
 @router.get("/user/{user_id}", response_model=dict)
 async def get_user_reminders(
     user_id: str,
-    status_filter: Optional[ReminderStatus] = None,
+    status_filter: Optional[str] = None,
     category: Optional[str] = None
 ):
     """
@@ -191,11 +566,29 @@ async def get_user_reminders(
     - **category**: Optional filter by category
     """
     try:
-        # TODO: Query database
-        # reminders = db_service.get_user_reminders(user_id, status_filter, category)
+        # Convert status_filter string to enum if provided
+        status_enum = None
+        if status_filter:
+            try:
+                status_enum = ReminderStatus(status_filter.lower())
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid status: {status_filter}. Valid values: active, completed, missed, snoozed, cancelled"
+                )
         
-        # Mock response
-        reminders = []
+        # Query database for user reminders
+        try:
+            db_service = get_db_service()
+            reminders = await db_service.get_user_reminders(user_id, status_enum)
+        except RuntimeError as db_error:
+            logger.error(f"Database not connected: {db_error}")
+            # Return empty result if DB not connected
+            reminders = []
+        
+        # Apply category filter if specified
+        if category:
+            reminders = [r for r in reminders if r.get("category") == category]
         
         return {
             "status": "success",
@@ -204,8 +597,101 @@ async def get_user_reminders(
             "reminders": reminders
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting reminders: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve reminders: {str(e)}"
+        )
+
+
+@router.get("/user/{user_id}/due-now", response_model=dict)
+async def get_due_reminders_now(user_id: str, time_window_minutes: int = 5):
+    """
+    Get reminders that are due NOW for a user (for polling-based notifications).
+    
+    Mobile apps can call this endpoint every 30-60 seconds to check for due reminders
+    and trigger local alarms/notifications.
+    
+    - **user_id**: User identifier
+    - **time_window_minutes**: Look ahead window in minutes (default: 5)
+    
+    Returns reminders that should trigger an alarm/notification right now.
+    """
+    try:
+        db_service = get_db_service()
+        
+        # Get reminders due within the time window (filtered by user_id in DB)
+        try:
+            due_reminders = await db_service.get_due_reminders(
+                time_window_minutes=time_window_minutes,
+                user_id=user_id
+            )
+        except RuntimeError as db_error:
+            logger.error(f"Database not connected: {db_error}")
+            return {
+                "status": "error",
+                "message": "Database not connected",
+                "user_id": user_id,
+                "due_reminders": [],
+                "should_trigger_alarm": False
+            }
+
+        # Already filtered by user_id at the DB level
+        user_due_reminders = due_reminders
+        
+        # Check if any are due RIGHT NOW (within the lookback window or upcoming <=1 min)
+        # Use datetime.now() — matches how scheduled_time is stored (naive local time)
+        now = datetime.now()
+        urgent_reminders = []
+        for reminder in user_due_reminders:
+            scheduled_time = reminder.get("scheduled_time")
+
+            # Handle both string and datetime objects
+            if isinstance(scheduled_time, str):
+                try:
+                    scheduled_time = datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+                    # Strip tz for naive-local comparison
+                    if scheduled_time.tzinfo is not None:
+                        from datetime import timezone
+                        scheduled_time = scheduled_time.astimezone(timezone.utc).replace(tzinfo=None)
+                except Exception:
+                    continue  # Skip if can't parse
+            elif not isinstance(scheduled_time, datetime):
+                continue  # Skip if not string or datetime
+
+            time_diff = (scheduled_time - now).total_seconds() / 60.0  # in minutes
+
+            # Trigger alarm for:
+            #   - Already past (up to 10 min ago) — catches reminders missed during gaps/restarts
+            #   - About to fire (within next 1 min) — early alert
+            if -10 <= time_diff <= 1:
+                # Convert datetime to ISO string for JSON response
+                reminder_copy = reminder.copy()
+                if isinstance(reminder_copy.get("scheduled_time"), datetime):
+                    reminder_copy["scheduled_time"] = reminder_copy["scheduled_time"].isoformat()
+                
+                urgent_reminders.append({
+                    **reminder_copy,
+                    "time_until_due_minutes": round(time_diff, 1),
+                    "trigger_alarm": True
+                })
+        
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "current_time": now.isoformat(),
+            "total_due_soon": len(user_due_reminders),
+            "urgent_count": len(urgent_reminders),
+            "should_trigger_alarm": len(urgent_reminders) > 0,
+            "urgent_reminders": urgent_reminders,
+            "upcoming_reminders": user_due_reminders[:5]  # Next 5 upcoming
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting due reminders: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
@@ -553,6 +1039,704 @@ async def get_user_dashboard(user_id: str, days: int = 7):
         
     except Exception as e:
         logger.error(f"Error getting dashboard: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/reports/weekly/{user_id}", response_model=dict)
+async def get_weekly_report(
+    user_id: str,
+    end_date: Optional[str] = None,
+    format: str = "json"
+):
+    """
+    Generate comprehensive weekly risk monitoring report.
+    
+    Returns detailed analysis including:
+    - Cognitive risk trends (daily and weekly)
+    - Reminder completion statistics
+    - Confusion patterns and memory issues
+    - Caregiver alert frequency
+    - Time-of-day performance analysis
+    - Category-specific breakdowns
+    - Actionable recommendations
+    - Week-over-week comparison
+    
+    - **user_id**: Patient identifier
+    - **end_date**: End date for report (ISO 8601 format, default: today)
+    - **format**: Output format ('json' or 'pdf', default: 'json')
+    """
+    try:
+        # Parse end_date if provided
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid end_date format. Use ISO 8601 format (YYYY-MM-DDTHH:MM:SS)"
+                )
+        else:
+            end_dt = None
+        
+        # Generate report
+        report = report_generator.generate_weekly_report(
+            user_id=user_id,
+            end_date=end_dt
+        )
+        
+        # Export to file if requested
+        if format == "pdf":
+            output_path = f"reports/weekly_{user_id}_{datetime.now().strftime('%Y%m%d')}.pdf"
+            report_generator.export_report_to_pdf(report, output_path)
+            return {
+                "status": "success",
+                "message": "PDF report generated",
+                "file_path": output_path,
+                "report_summary": {
+                    "user_id": report.user_id,
+                    "period": f"{report.report_period_start} to {report.report_period_end}",
+                    "risk_level": report.risk_level,
+                    "intervention_needed": report.intervention_needed
+                }
+            }
+        
+        # Return JSON report
+        return {
+            "status": "success",
+            "report": report.dict()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating weekly report: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/reports/weekly/{user_id}/summary", response_model=dict)
+async def get_weekly_report_summary(user_id: str):
+    """
+    Get brief summary of weekly report (for dashboard display).
+    
+    Returns key metrics only:
+    - Risk level and score
+    - Completion rate
+    - Alert count
+    - Intervention status
+    
+    - **user_id**: Patient identifier
+    """
+    try:
+        report = report_generator.generate_weekly_report(user_id=user_id)
+        
+        return {
+            "status": "success",
+            "summary": {
+                "user_id": report.user_id,
+                "period": f"{report.report_period_start} to {report.report_period_end}",
+                "risk_level": report.risk_level,
+                "avg_cognitive_risk": report.avg_cognitive_risk_score,
+                "risk_trend": report.risk_trend,
+                "completion_rate": report.completion_rate,
+                "total_alerts": report.total_alerts,
+                "critical_alerts": report.critical_alerts,
+                "intervention_needed": report.intervention_needed,
+                "escalation_required": report.escalation_required,
+                "top_recommendations": report.recommendations[:3]
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating report summary: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post("/complete/{reminder_id}", response_model=dict, status_code=status.HTTP_200_OK)
+async def complete_reminder(reminder_id: str):
+    """
+    Mark a reminder as completed and handle repeat patterns.
+    
+    For daily/weekly reminders, this will:
+    - Mark current instance as completed
+    - Create next occurrence automatically
+    
+    - **reminder_id**: Reminder identifier
+    """
+    try:
+        db_service = get_db_service()
+        
+        # Get the reminder
+        reminder_data = await db_service.get_reminder(reminder_id)
+        if not reminder_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
+        
+        # Mark as completed
+        completion_time = datetime.now()
+        await db_service.update_reminder(
+            reminder_id,
+            {
+                "status": "completed",
+                "completed_at": completion_time
+            }
+        )
+        
+        logger.info(f"Marked reminder {reminder_id} as completed")
+        
+        # Handle repeat patterns
+        repeat_pattern = reminder_data.get("repeat_pattern")
+        next_reminder_id = None
+        next_scheduled_time = None
+        
+        if repeat_pattern in ["daily", "weekly"]:
+            # Calculate next occurrence
+            current_scheduled = reminder_data["scheduled_time"]
+            if isinstance(current_scheduled, str):
+                current_scheduled = datetime.fromisoformat(current_scheduled.replace('+00:00', ''))
+            
+            if repeat_pattern == "daily":
+                next_scheduled_time = current_scheduled + timedelta(days=1)
+            elif repeat_pattern == "weekly":
+                next_scheduled_time = current_scheduled + timedelta(weeks=1)
+            
+            # Create next reminder instance
+            from src.features.reminder_system.reminder_models import Reminder, ReminderPriority, ReminderStatus
+            
+            next_reminder = Reminder(
+                id=f"reminder_{uuid.uuid4().hex[:12]}",
+                user_id=reminder_data["user_id"],
+                title=reminder_data["title"],
+                description=reminder_data.get("description"),
+                scheduled_time=next_scheduled_time,
+                priority=ReminderPriority(reminder_data.get("priority", "medium")),
+                category=reminder_data.get("category", "general"),
+                repeat_pattern=repeat_pattern,
+                repeat_interval_minutes=reminder_data.get("repeat_interval_minutes"),
+                caregiver_ids=reminder_data.get("caregiver_ids", []),
+                adaptive_scheduling_enabled=reminder_data.get("adaptive_scheduling_enabled", True),
+                escalation_enabled=reminder_data.get("escalation_enabled", True),
+                escalation_threshold_minutes=reminder_data.get("escalation_threshold_minutes", 30),
+                notify_caregiver_on_miss=reminder_data.get("notify_caregiver_on_miss", True),
+                status=ReminderStatus.ACTIVE
+            )
+            
+            result = await db_service.create_reminder(next_reminder)
+            next_reminder_id = result["id"]
+            
+            logger.info(f"Created next {repeat_pattern} reminder {next_reminder_id} scheduled for {next_scheduled_time}")
+        
+        return {
+            "status": "success",
+            "message": "Reminder completed successfully",
+            "reminder_id": reminder_id,
+            "completed_at": completion_time.isoformat(),
+            "has_next_occurrence": next_reminder_id is not None,
+            "next_reminder_id": next_reminder_id,
+            "next_scheduled_time": next_scheduled_time.isoformat() if next_scheduled_time else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error completing reminder: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post("/stop/{reminder_id}", response_model=dict, status_code=status.HTTP_200_OK)
+async def stop_reminder_with_response(
+    reminder_id: str,
+    user_response: Optional[str] = None
+):
+    """
+    Stop/Complete a reminder with optional user response for dementia tracking.
+    
+    This is the IMPROVED endpoint that:
+    - Stops the alarm/notification
+    - Analyzes user's response for dementia indicators
+    - Tracks interaction to BehaviorTracker
+    - Calculates cognitive risk score
+    - Alerts caregiver if needed
+    
+    - **reminder_id**: Reminder identifier
+    - **user_response**: User's response text (e.g., "done", "I took it", etc.)
+    """
+    try:
+        db_service = get_db_service()
+        
+        # Get the reminder
+        reminder_data = await db_service.get_reminder(reminder_id)
+        if not reminder_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
+        
+        completion_time = datetime.now()
+        scheduled_time = reminder_data.get("scheduled_time")
+        if isinstance(scheduled_time, str):
+            scheduled_time = datetime.fromisoformat(scheduled_time.replace('+00:00', ''))
+        
+        # Calculate response time
+        response_time_seconds = None
+        if scheduled_time:
+            response_time_seconds = (completion_time - scheduled_time).total_seconds()
+        
+        # Analyze response if provided
+        analysis_result = None
+        cognitive_risk_score = 0.0
+        interaction_type = InteractionType.CONFIRMED
+        caregiver_notified = False
+        
+        if user_response and user_response.strip():
+            # Analyze the response for dementia indicators
+            from src.features.reminder_system.reminder_models import Reminder, ReminderPriority
+            
+            reminder_obj = Reminder(
+                id=reminder_id,
+                user_id=reminder_data["user_id"],
+                title=reminder_data["title"],
+                description=reminder_data.get("description"),
+                scheduled_time=scheduled_time or datetime.now(),
+                priority=ReminderPriority(reminder_data.get("priority", "medium")),
+                category=reminder_data.get("category", "general")
+            )
+            
+            result = scheduler.process_reminder_response(
+                reminder=reminder_obj,
+                user_response=user_response,
+                response_time_seconds=response_time_seconds
+            )
+            
+            analysis_result = result.get('analysis', {})
+            cognitive_risk_score = analysis_result.get('cognitive_risk_score', 0.0)
+            interaction_type = InteractionType(analysis_result.get('interaction_type', 'confirmed'))
+            caregiver_notified = result.get('caregiver_notified', False)
+        else:
+            # No response provided - just mark as completed
+            # Still track interaction for behavior analysis
+            interaction = ReminderInteraction(
+                reminder_id=reminder_id,
+                user_id=reminder_data["user_id"],
+                reminder_category=reminder_data.get("category"),
+                interaction_type=InteractionType.CONFIRMED,
+                interaction_time=completion_time,
+                response_time_seconds=response_time_seconds
+            )
+            behavior_tracker.log_interaction(interaction)
+        
+        # Mark as completed
+        await db_service.update_reminder(
+            reminder_id,
+            {
+                "status": "completed",
+                "completed_at": completion_time,
+                "user_response": user_response,
+                "cognitive_risk_score": cognitive_risk_score
+            }
+        )
+        
+        logger.info(f"Stopped reminder {reminder_id} - cognitive risk: {cognitive_risk_score:.2f}")
+        
+        # Handle repeat patterns
+        repeat_pattern = reminder_data.get("repeat_pattern")
+        next_reminder_id = None
+        next_scheduled_time = None
+        
+        if repeat_pattern in ["daily", "weekly"]:
+            current_scheduled = reminder_data["scheduled_time"]
+            if isinstance(current_scheduled, str):
+                current_scheduled = datetime.fromisoformat(current_scheduled.replace('+00:00', ''))
+            
+            if repeat_pattern == "daily":
+                next_scheduled_time = current_scheduled + timedelta(days=1)
+            elif repeat_pattern == "weekly":
+                next_scheduled_time = current_scheduled + timedelta(weeks=1)
+            
+            # Create next reminder instance
+            from src.features.reminder_system.reminder_models import Reminder, ReminderPriority, ReminderStatus
+            
+            next_reminder = Reminder(
+                id=f"reminder_{uuid.uuid4().hex[:12]}",
+                user_id=reminder_data["user_id"],
+                title=reminder_data["title"],
+                description=reminder_data.get("description"),
+                scheduled_time=next_scheduled_time,
+                priority=ReminderPriority(reminder_data.get("priority", "medium")),
+                category=reminder_data.get("category", "general"),
+                repeat_pattern=repeat_pattern,
+                repeat_interval_minutes=reminder_data.get("repeat_interval_minutes"),
+                caregiver_ids=reminder_data.get("caregiver_ids", []),
+                adaptive_scheduling_enabled=reminder_data.get("adaptive_scheduling_enabled", True),
+                escalation_enabled=reminder_data.get("escalation_enabled", True),
+                escalation_threshold_minutes=reminder_data.get("escalation_threshold_minutes", 30),
+                notify_caregiver_on_miss=reminder_data.get("notify_caregiver_on_miss", True),
+                status=ReminderStatus.ACTIVE
+            )
+            
+            result = await db_service.create_reminder(next_reminder)
+            next_reminder_id = result["id"]
+            
+            logger.info(f"Created next {repeat_pattern} reminder {next_reminder_id}")
+        
+        return {
+            "status": "success",
+            "message": "Reminder stopped successfully",
+            "reminder_id": reminder_id,
+            "completed_at": completion_time.isoformat(),
+            "cognitive_analysis": {
+                "risk_score": cognitive_risk_score,
+                "interaction_type": interaction_type.value,
+                "features": analysis_result.get('features', {}) if analysis_result else {},
+                "caregiver_notified": caregiver_notified,
+                "confusion_detected": analysis_result.get('confusion_detected', False) if analysis_result else False,
+                "memory_issue_detected": analysis_result.get('memory_issue_detected', False) if analysis_result else False
+            },
+            "has_next_occurrence": next_reminder_id is not None,
+            "next_reminder_id": next_reminder_id,
+            "next_scheduled_time": next_scheduled_time.isoformat() if next_scheduled_time else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error stopping reminder: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post("/snooze-tracked/{reminder_id}", response_model=dict)
+async def snooze_reminder_with_tracking(reminder_id: str, delay_minutes: int = 15):
+    """
+    Snooze a reminder and track the interaction for dementia detection.
+    
+    This IMPROVED snooze endpoint:
+    - Delays the reminder by specified minutes
+    - Tracks snooze behavior to BehaviorTracker
+    - Monitors frequent snoozing patterns (may indicate confusion/avoidance)
+    - Updates adaptive scheduling
+    
+    - **reminder_id**: Reminder identifier
+    - **delay_minutes**: Minutes to delay (default 15)
+    """
+    try:
+        db_service = get_db_service()
+        
+        # Get reminder from database
+        reminder_data = await db_service.get_reminder(reminder_id)
+        if not reminder_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
+        
+        from src.features.reminder_system.reminder_models import Reminder, ReminderPriority
+        
+        scheduled_time = reminder_data.get("scheduled_time")
+        if isinstance(scheduled_time, str):
+            scheduled_time = datetime.fromisoformat(scheduled_time.replace('+00:00', ''))
+        
+        reminder = Reminder(
+            id=reminder_id,
+            user_id=reminder_data["user_id"],
+            title=reminder_data["title"],
+            scheduled_time=scheduled_time or datetime.now(),
+            priority=ReminderPriority(reminder_data.get("priority", "medium")),
+            category=reminder_data.get("category", "general")
+        )
+        
+        # Reschedule the reminder
+        updated_reminder = scheduler.reschedule_reminder(
+            reminder=reminder,
+            delay_minutes=delay_minutes,
+            reason="user_requested_snooze"
+        )
+        
+        # Track the snooze interaction
+        interaction = ReminderInteraction(
+            reminder_id=reminder_id,
+            user_id=reminder_data["user_id"],
+            reminder_category=reminder_data.get("category"),
+            interaction_type=InteractionType.DELAYED,
+            interaction_time=datetime.now(),
+            user_response_text=f"Snoozed for {delay_minutes} minutes"
+        )
+        behavior_tracker.log_interaction(interaction)
+        
+        # Check snooze frequency (frequent snoozing may indicate confusion)
+        pattern = behavior_tracker.get_user_behavior_pattern(
+            user_id=reminder_data["user_id"],
+            reminder_id=reminder_id,
+            days=7
+        )
+        
+        # Alert if too many snoozes
+        alert_caregiver = False
+        if pattern.delayed_count > 5 and pattern.total_reminders > 0:
+            delay_rate = pattern.delayed_count / pattern.total_reminders
+            if delay_rate > 0.6:  # More than 60% snooze rate
+                alert_caregiver = True
+                logger.warning(f"High snooze rate for user {reminder_data['user_id']}: {delay_rate:.1%}")
+        
+        # Update reminder in database
+        await db_service.update_reminder(
+            reminder_id,
+            {
+                "scheduled_time": updated_reminder.scheduled_time,
+                "status": "snoozed"
+            }
+        )
+        
+        return {
+            "status": "success",
+            "message": f"Reminder snoozed for {delay_minutes} minutes",
+            "reminder_id": reminder_id,
+            "new_scheduled_time": updated_reminder.scheduled_time.isoformat(),
+            "snooze_count_week": pattern.delayed_count,
+            "snooze_rate": pattern.delayed_count / pattern.total_reminders if pattern.total_reminders > 0 else 0,
+            "caregiver_alert": alert_caregiver,
+            "recommendation": "Consider discussing with caregiver" if alert_caregiver else "Normal snooze behavior"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error snoozing reminder: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post("/help-request/{reminder_id}", response_model=dict)
+async def request_help_confused(
+    reminder_id: str,
+    help_reason: Optional[str] = "confused"
+):
+    """
+    User requests help or indicates confusion about a reminder.
+    
+    This endpoint is triggered when user indicates they:
+    - Don't understand the reminder
+    - Are confused about what to do
+    - Need assistance from caregiver
+    
+    This is a CRITICAL indicator for dementia detection and triggers immediate caregiver alert.
+    
+    - **reminder_id**: Reminder identifier
+    - **help_reason**: Reason for help (confused, dont_understand, forgot, need_assistance)
+    """
+    try:
+        db_service = get_db_service()
+        
+        # Get reminder
+        reminder_data = await db_service.get_reminder(reminder_id)
+        if not reminder_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
+        
+        user_id = reminder_data["user_id"]
+        
+        # Track as confused interaction - HIGH cognitive risk indicator
+        interaction = ReminderInteraction(
+            reminder_id=reminder_id,
+            user_id=user_id,
+            reminder_category=reminder_data.get("category"),
+            interaction_type=InteractionType.CONFUSED,
+            interaction_time=datetime.now(),
+            user_response_text=f"Help requested: {help_reason}",
+            cognitive_risk_score=0.75,  # High risk - explicit confusion
+            confusion_detected=True,
+            recommended_action="escalate_to_caregiver",
+            caregiver_alert_triggered=True
+        )
+        behavior_tracker.log_interaction(interaction)
+        
+        # Update reminder status
+        await db_service.update_reminder(
+            reminder_id,
+            {
+                "status": "requires_help",
+                "help_requested": True,
+                "help_reason": help_reason,
+                "help_requested_at": datetime.now()
+            }
+        )
+        
+        # Trigger caregiver notification
+        from src.features.reminder_system.caregiver_notifier import CaregiverNotifier
+        from src.features.reminder_system.reminder_models import CaregiverAlert
+        
+        notifier = CaregiverNotifier()
+        
+        # Create alert for all assigned caregivers
+        caregiver_ids = reminder_data.get("caregiver_ids", [])
+        alerts_sent = []
+        
+        for caregiver_id in caregiver_ids:
+            alert = CaregiverAlert(
+                id=f"alert_{uuid.uuid4().hex[:12]}",
+                caregiver_id=caregiver_id,
+                user_id=user_id,
+                reminder_id=reminder_id,
+                alert_type="confusion_detected",
+                severity="high",
+                message=f"Patient is confused about: {reminder_data['title']}",
+                reminder_title=reminder_data["title"],
+                cognitive_risk_score=0.75,
+                user_response=f"Help requested: {help_reason}",
+                context={
+                    "help_reason": help_reason,
+                    "category": reminder_data.get("category"),
+                    "priority": reminder_data.get("priority")
+                }
+            )
+            
+            notifier.send_alert(alert)
+            alerts_sent.append(caregiver_id)
+        
+        logger.warning(f"HELP REQUESTED: User {user_id} confused about reminder {reminder_id}")
+        logger.info(f"Caregiver alerts sent to: {alerts_sent}")
+        
+        return {
+            "status": "success",
+            "message": "Help request received. Caregiver has been notified.",
+            "reminder_id": reminder_id,
+            "cognitive_risk_score": 0.75,
+            "caregiver_notified": True,
+            "caregivers_alerted": alerts_sent,
+            "recommendation": "Caregiver will contact you shortly",
+            "help_reason": help_reason
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing help request: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/weekly-dementia-risk/{user_id}", response_model=dict)
+async def get_weekly_dementia_risk_report(
+    user_id: str,
+    weeks: int = 4
+):
+    """
+    Generate weekly dementia risk report for caregiver dashboard.
+    
+    Provides comprehensive cognitive decline tracking over multiple weeks:
+    - Average cognitive risk scores per week
+    - Trend analysis (improving, stable, declining)
+    - Confusion frequency tracking
+    - Response pattern analysis
+    - Recommendations for intervention
+    
+    - **user_id**: Patient identifier
+    - **weeks**: Number of weeks to analyze (default 4)
+    """
+    try:
+        # Get behavior patterns for each week
+        weekly_data = []
+        
+        for week in range(weeks):
+            start_day = week * 7
+            end_day = start_day + 7
+            
+            pattern = behavior_tracker.get_user_behavior_pattern(
+                user_id=user_id,
+                days=7  # One week at a time
+            )
+            
+            week_number = weeks - week  # Most recent week is 1
+            
+            weekly_data.append({
+                "week": week_number,
+                "total_reminders": pattern.total_reminders,
+                "confirmed_count": pattern.confirmed_count,
+                "confused_count": pattern.confused_count,
+                "ignored_count": pattern.ignored_count,
+                "avg_cognitive_risk": pattern.avg_cognitive_risk_score or 0.0,
+                "confusion_trend": pattern.confusion_trend,
+                "escalation_needed": pattern.escalation_recommended
+            })
+        
+        # Calculate overall trends
+        risk_scores = [w["avg_cognitive_risk"] for w in weekly_data if w["avg_cognitive_risk"] > 0]
+        avg_risk = statistics.mean(risk_scores) if risk_scores else 0.0
+        
+        # Determine trend
+        if len(risk_scores) >= 2:
+            recent_avg = statistics.mean(risk_scores[:2])  # Last 2 weeks
+            older_avg = statistics.mean(risk_scores[2:]) if len(risk_scores) > 2 else recent_avg
+            
+            if recent_avg > older_avg + 0.1:
+                overall_trend = "declining"  # Cognitive function declining
+                trend_severity = "concerning"
+            elif recent_avg < older_avg - 0.1:
+                overall_trend = "improving"
+                trend_severity = "positive"
+            else:
+                overall_trend = "stable"
+                trend_severity = "normal"
+        else:
+            overall_trend = "insufficient_data"
+            trend_severity = "unknown"
+        
+        # Generate recommendations
+        recommendations = []
+        if avg_risk > 0.7:
+            recommendations.append("⚠️ HIGH RISK: Schedule medical evaluation immediately")
+        elif avg_risk > 0.5:
+            recommendations.append("📋 Elevated risk: Increase monitoring frequency")
+        
+        total_confused = sum(w["confused_count"] for w in weekly_data)
+        if total_confused > 10:
+            recommendations.append("🧠 High confusion frequency - consider cognitive assessment")
+        
+        if overall_trend == "declining":
+            recommendations.append("📉 Cognitive decline detected - consult healthcare provider")
+        
+        if not recommendations:
+            recommendations.append("✅ Cognitive function appears stable")
+        
+        logger.info(f"Generated {weeks}-week dementia risk report for user {user_id}")
+        
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "report_period_weeks": weeks,
+            "summary": {
+                "average_cognitive_risk": avg_risk,
+                "overall_trend": overall_trend,
+                "trend_severity": trend_severity,
+                "total_confused_interactions": total_confused,
+                "requires_immediate_attention": avg_risk > 0.7 or overall_trend == "declining"
+            },
+            "weekly_breakdown": weekly_data,
+            "recommendations": recommendations,
+            "generated_at": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating weekly report: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
