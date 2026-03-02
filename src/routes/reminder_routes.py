@@ -28,6 +28,19 @@ from src.features.reminder_system.caregiver_notifier import CaregiverNotifier
 from src.features.reminder_system.reminder_models import (
     ReminderStatus, ReminderPriority, CaregiverAlert, InteractionType
 )
+
+# Behavioral analysis – auto-log every reminder interaction
+from src.services.behavioral_timeline_service import BehavioralTimelineService
+from src.features.behavioral_analysis.behavioral_models import (
+    UserBehavioralLog, ActivityType, ResponseType
+)
+_behavioral_service: Optional[BehavioralTimelineService] = None
+
+def _get_behavioral_service() -> BehavioralTimelineService:
+    global _behavioral_service
+    if _behavioral_service is None:
+        _behavioral_service = BehavioralTimelineService()
+    return _behavioral_service
 from src.features.reminder_system.weekly_report_generator import (
     WeeklyReportGenerator, WeeklyCognitiveReport
 )
@@ -1348,7 +1361,46 @@ async def stop_reminder_with_response(
         )
         
         logger.info(f"Stopped reminder {reminder_id} - cognitive risk: {cognitive_risk_score:.2f}")
-        
+
+        # ── Behavioral Analysis: auto-log this interaction ──────────────────
+        try:
+            _bsvc = _get_behavioral_service()
+            _deviation_mins = None
+            if scheduled_time and response_time_seconds is not None:
+                _deviation_mins = response_time_seconds / 60.0
+
+            # Map interaction_type to ResponseType
+            _resp_map = {
+                InteractionType.CONFIRMED:         ResponseType.RESPONDED_ON_TIME,
+                InteractionType.DELAYED:           ResponseType.RESPONDED_LATE,
+                InteractionType.IGNORED:           ResponseType.MISSED,
+                InteractionType.CONFUSED:          ResponseType.CONFUSED,
+                InteractionType.REPEATED_QUESTION: ResponseType.CONFUSED,
+                InteractionType.PARTIAL_COMPLETION:ResponseType.RESPONDED_LATE,
+            }
+            _rt = _resp_map.get(interaction_type, ResponseType.RESPONDED_ON_TIME)
+            if _deviation_mins and _deviation_mins > 30:
+                _rt = ResponseType.RESPONDED_LATE
+
+            _log = UserBehavioralLog(
+                user_id=reminder_data["user_id"],
+                activity_type=ActivityType.MEDICATION
+                    if reminder_data.get("category") == "medication"
+                    else ActivityType.REMINDER_RESPONSE,
+                response_type=_rt,
+                timestamp=completion_time,
+                scheduled_time=scheduled_time,
+                time_deviation_minutes=_deviation_mins,
+                completion_rate=1.0 if interaction_type == InteractionType.CONFIRMED else 0.5,
+                reminder_id=reminder_id,
+                reminder_category=reminder_data.get("category"),
+            )
+            import asyncio
+            asyncio.create_task(_bsvc.log_event(_log))
+        except Exception as _be:
+            logger.warning(f"Behavioral log skipped: {_be}")
+        # ────────────────────────────────────────────────────────────────────
+
         # Handle repeat patterns
         repeat_pattern = reminder_data.get("repeat_pattern")
         next_reminder_id = None

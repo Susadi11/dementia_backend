@@ -4,6 +4,8 @@ FastAPI Application for Dementia Detection
 Combines conversational AI + gamified cognitive assessment for comprehensive dementia risk detection.
 """
 
+import utils.transport
+import utils.session
 from fastapi import FastAPI, HTTPException, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -38,6 +40,7 @@ from src.features.MMSE_Screening_Test.mmse_routes import router as mmse_router
 # from src.preprocessing.voice_processor import get_voice_processor
 # from src.preprocessing.audio_models import get_db_manager
 from src.routes import healthcheck, conversational_ai, reminder_routes, game_routes, risk_routes, websocket_routes, caregiver_routes, user_routes, detection_routes
+from src.routes import behavioral_routes
 
 from src.database import Database
 from src.services.chatbot import session_finalizer
@@ -100,6 +103,9 @@ app.include_router(caregiver_routes.router)
 
 # User/Patient authentication routes
 app.include_router(user_routes.router)
+
+# Behavioral analysis + Chronos dementia risk routes
+app.include_router(behavioral_routes.router)
 
 # Initialize components
 feature_extractor = FeatureExtractor()
