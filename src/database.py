@@ -147,6 +147,20 @@ class Database:
             await alerts.create_index("caregiver_id")
             await alerts.create_index("created_at")
 
+            # Behavioral analysis indexes (Chronos dementia risk)
+            behavioral_logs = cls.get_collection("behavioral_logs")
+            await behavioral_logs.create_index("user_id")
+            await behavioral_logs.create_index("timestamp")
+            await behavioral_logs.create_index([("user_id", 1), ("timestamp", -1)])
+            await behavioral_logs.create_index("activity_type")
+
+            daily_summaries = cls.get_collection("behavioral_daily_summary")
+            await daily_summaries.create_index([("user_id", 1), ("date", -1)])
+
+            risk_reports = cls.get_collection("dementia_risk_reports")
+            await risk_reports.create_index("user_id")
+            await risk_reports.create_index([("user_id", 1), ("generated_at", -1)])
+
             # Chat detection session indexes (12-parameter system)
             chat_detection_sessions = cls.get_collection("chat_detection_sessions")
             await chat_detection_sessions.create_index("session_id", unique=True)
