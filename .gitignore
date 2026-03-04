@@ -31,7 +31,6 @@ env/
 .venv
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -39,8 +38,6 @@ env/
 .DS_Store
 
 # Environment variables
-.env
-.env.local
 .env.*.local
 
 # Logs
@@ -66,3 +63,7 @@ tmp/
 # OS
 .DS_Store
 Thumbs.db
+
+dataset
+config.bat
+node_modules
