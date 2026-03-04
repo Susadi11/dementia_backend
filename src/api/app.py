@@ -352,7 +352,8 @@ async def analyze_message(request: AnalysisRequest):
             detail="Text content is required"
         )
 
-    result = extract_and_analyze(request.text)
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, extract_and_analyze, request.text)
 
     logger.info(f"Analysis complete. Risk level: {result['risk_level']}")
 
@@ -378,9 +379,10 @@ async def analyze_session(request: SessionAnalysisRequest):
         session_results = []
 
         # Analyze each message
+        loop = asyncio.get_event_loop()
         for msg in request.messages:
             if msg.text:
-                result = extract_and_analyze(msg.text)
+                result = await loop.run_in_executor(None, extract_and_analyze, msg.text)
                 session_results.append(result)
 
         # Calculate session-level metrics

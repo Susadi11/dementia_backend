@@ -58,7 +58,8 @@ def main():
             "src.api.app:app",
             host="0.0.0.0",
             port=8080,
-            log_level="info"
+            log_level="info",
+            timeout_keep_alive=30
         )
     except KeyboardInterrupt:
         print("\n\nServer stopped by user")
