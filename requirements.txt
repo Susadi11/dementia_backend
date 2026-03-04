@@ -42,6 +42,7 @@ spacy==3.7.2
 nltk==3.8.1
 transformers==4.45.0  # Required for LLaMA 3.2 rope_scaling support
 torch==2.1.0
+torchvision==0.16.0  # Must match torch==2.1.0 - newer versions require torch 2.2+
 peft>=0.7.0,<0.14.0  # For LoRA adapter loading, compatible with transformers 4.45.0
 sentence-transformers>=2.3.0  # Updated for compatibility with huggingface-hub
 textblob==0.17.1
@@ -52,3 +53,5 @@ huggingface-hub>=0.23.2,<1.0  # Required for transformers 4.45.0
 
 # Development
 python-dotenv==1.0.0
+email-validator>=2.0.0  # Required by pydantic EmailStr fields in caregiver_routes
+dateparser>=1.1.0  # Required by NLP date parsing modules
