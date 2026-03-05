@@ -112,3 +112,33 @@ async def finalize_mmse_assessment(
         ml_risk_label=ml_risk_label,
         avg_ml_probability=avg_ml_prob,
     )
+
+async def get_mmse_assessments_by_user(user_id: str):
+    """
+    Fetch all MMSE assessments for a specific user.
+    """
+
+    user = await db_service.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    assessments = await db_service.get_user_assessments(user_id)
+
+    return {
+        "user_id": user_id,
+        "total_assessments": len(assessments),
+        "assessments": assessments,
+    }
+
+async def get_caregiver_patients_with_assessments(caregiver_id: str):
+
+    patients = await db_service.get_patients_with_assessments(caregiver_id)
+
+    if not patients:
+        raise HTTPException(status_code=404, detail="No patients found for caregiver")
+
+    return {
+        "caregiver_id": caregiver_id,
+        "total_patients": len(patients),
+        "patients": patients
+    }
