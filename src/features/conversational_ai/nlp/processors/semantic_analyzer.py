@@ -81,30 +81,33 @@ class SemanticAnalyzer:
         self.model = None
         self.tokenizer = None
         self.use_sentence_transformers = use_sentence_transformers
-
-        self._load_model()
+        self._model_loaded = False
+        
+        logger.info("SemanticAnalyzer initialized (model will load on first use)")
 
     def _load_model(self):
-        """Load the semantic model."""
-        if not SENTENCE_TRANSFORMERS_AVAILABLE and not TRANSFORMERS_AVAILABLE:
-            logger.warning("Neither SentenceTransformers nor Transformers available. "
-                         "Semantic analysis disabled.")
+        """Lazy load the semantic model on first use."""
+        if self._model_loaded or (not SENTENCE_TRANSFORMERS_AVAILABLE and not TRANSFORMERS_AVAILABLE):
             return
 
         try:
+            logger.info(f"Loading semantic model: {self.model_name}...")
             if self.use_sentence_transformers and SENTENCE_TRANSFORMERS_AVAILABLE:
                 # Use SentenceTransformers for faster embeddings
                 self.model = SentenceTransformer(self.model_name)
-                logger.info(f"Loaded SentenceTransformer model: {self.model_name}")
+                logger.info(f"✓ Loaded SentenceTransformer model: {self.model_name}")
             elif TRANSFORMERS_AVAILABLE:
                 # Use raw transformers
                 self.model = AutoModel.from_pretrained(self.model_name)
                 self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
                 self.model.to(self.device)
-                logger.info(f"Loaded Transformer model: {self.model_name}")
+                logger.info(f"✓ Loaded Transformer model: {self.model_name}")
+            
+            self._model_loaded = True
         except Exception as e:
             logger.error(f"Error loading semantic model: {e}")
             self.model = None
+            self._model_loaded = True  # Mark as attempted to avoid retries
 
     def get_embeddings(self, texts: List[str]) -> Optional[np.ndarray]:
         """
@@ -116,6 +119,10 @@ class SemanticAnalyzer:
         Returns:
             Array of embeddings (n_texts, embedding_dim)
         """
+        # Lazy load model on first use
+        if not self._model_loaded:
+            self._load_model()
+        
         if self.model is None:
             logger.warning("Semantic model not loaded")
             return None

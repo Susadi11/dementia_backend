@@ -99,33 +99,46 @@ class SentimentAnalyzer:
         self.use_transformers = use_transformers
         self.sentiment_pipeline = None
         self.emotion_pipeline = None
+        self._sentiment_loaded = False
+        self._emotion_loaded = False
+        
+        logger.info("SentimentAnalyzer initialized (models will load on first use)")
 
-        if self.use_transformers and TRANSFORMERS_AVAILABLE:
-            self._load_transformers()
-
-    def _load_transformers(self):
-        """Load transformer-based sentiment and emotion models."""
+    def _load_sentiment_pipeline(self):
+        """Lazy load sentiment pipeline on first use."""
+        if self._sentiment_loaded or not TRANSFORMERS_AVAILABLE:
+            return
+        
         try:
-            # Load sentiment pipeline
+            logger.info("Loading sentiment analysis pipeline...")
             self.sentiment_pipeline = pipeline(
                 "sentiment-analysis",
                 model="distilbert-base-uncased-finetuned-sst-2-english"
             )
-            logger.info("Loaded sentiment analysis pipeline")
+            self._sentiment_loaded = True
+            logger.info("✓ Sentiment analysis pipeline loaded")
         except Exception as e:
             logger.warning(f"Could not load sentiment pipeline: {e}")
             self.sentiment_pipeline = None
+            self._sentiment_loaded = True  # Mark as attempted to avoid retry
 
+    def _load_emotion_pipeline(self):
+        """Lazy load emotion pipeline on first use."""
+        if self._emotion_loaded or not TRANSFORMERS_AVAILABLE:
+            return
+        
         try:
-            # Load emotion pipeline
+            logger.info("Loading emotion analysis pipeline...")
             self.emotion_pipeline = pipeline(
                 "text-classification",
                 model="j-hartmann/emotion-english-distilroberta-base"
             )
-            logger.info("Loaded emotion analysis pipeline")
+            self._emotion_loaded = True
+            logger.info("✓ Emotion analysis pipeline loaded")
         except Exception as e:
             logger.warning(f"Could not load emotion pipeline: {e}")
             self.emotion_pipeline = None
+            self._emotion_loaded = True  # Mark as attempted to avoid retry
 
     def analyze_sentiment(self, text: str) -> Tuple[str, float]:
         """
@@ -139,6 +152,10 @@ class SentimentAnalyzer:
         """
         if not text.strip():
             return 'neutral', 0.0
+
+        # Lazy load sentiment pipeline on first use
+        if self.use_transformers and not self._sentiment_loaded:
+            self._load_sentiment_pipeline()
 
         # Try transformer-based analysis first
         if self.sentiment_pipeline is not None:
@@ -203,6 +220,10 @@ class SentimentAnalyzer:
         """
         if not text.strip():
             return {}
+
+        # Lazy load emotion pipeline on first use
+        if self.use_transformers and not self._emotion_loaded:
+            self._load_emotion_pipeline()
 
         # Try transformer-based analysis first
         if self.emotion_pipeline is not None:

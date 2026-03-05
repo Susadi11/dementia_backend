@@ -467,9 +467,32 @@ async def create_reminder_from_audio(
         raise
     except Exception as e:
         logger.error(f"Error creating reminder from audio: {e}", exc_info=True)
+        
+        # Provide helpful error messages based on the error type
+        error_msg = str(e).lower()
+        
+        if "format not recognised" in error_msg or ".3gp" in error_msg or "cannot load audio" in error_msg:
+            detail = (
+                "Your device recorded audio in .3gp format, which requires FFmpeg to process. "
+                "SOLUTION: Please install FFmpeg from https://ffmpeg.org/download.html\n\n"
+                "For Windows:\n"
+                "1. Download from: https://ffmpeg.org/download.html#build-windows\n"
+                "2. Extract the files to a folder (e.g., C:\\ffmpeg)\n"
+                "3. Add the folder to your system PATH environment variable\n"
+                "4. Restart your application\n\n"
+                "After installing FFmpeg, audio recording will work automatically."
+            )
+        elif "no backend" in error_msg or "nobackenderror" in error_msg:
+            detail = (
+                "Audio processing failed - FFmpeg is required. "
+                "Please install FFmpeg from: https://ffmpeg.org/download.html"
+            )
+        else:
+            detail = f"Failed to process audio: {str(e)[:200]}"
+        
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process audio: {str(e)}"
+            detail=detail
         )
 
 
@@ -1364,9 +1387,10 @@ async def acknowledge_reminder_alarm(
         
         repeat_count = reminder_data.get("alarm_repeat_count", 0)
         
+        response_time_msg = f" after {response_time_seconds:.1f}s" if response_time_seconds is not None else ""
         logger.info(
             f"✅ Reminder {reminder_id} acknowledged by user {user_id} "
-            f"via {acknowledgment_method} after {response_time_seconds:.1f}s "
+            f"via {acknowledgment_method}{response_time_msg} "
             f"(repeated {repeat_count} times)"
         )
         

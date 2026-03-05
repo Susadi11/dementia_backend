@@ -11,8 +11,180 @@ import logging
 from typing import Dict, Any, Optional
 from pathlib import Path
 import os
+import subprocess
+import numpy as np
+import tempfile
 
 logger = logging.getLogger(__name__)
+
+
+def check_ffmpeg_available() -> bool:
+    """Check if ffmpeg is available in the system or common installation paths."""
+    # Try direct PATH first
+    try:
+        subprocess.run(
+            ["ffmpeg", "-version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True
+        )
+        return True
+    except (subprocess.SubprocessError, FileNotFoundError):
+        pass
+    
+    # Check common Windows installation paths
+    if os.name == 'nt':  # Windows
+        common_paths = [
+            r"C:\ffmpeg\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe",
+            r"C:\ffmpeg\bin\ffmpeg.exe",
+            r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+            r"C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe",
+        ]
+        for ffmpeg_path in common_paths:
+            if os.path.exists(ffmpeg_path):
+                try:
+                    # Add to PATH for this session
+                    ffmpeg_dir = os.path.dirname(ffmpeg_path)
+                    if ffmpeg_dir not in os.environ.get('PATH', ''):
+                        os.environ['PATH'] = f"{ffmpeg_dir};{os.environ.get('PATH', '')}"
+                    
+                    subprocess.run(
+                        [ffmpeg_path, "-version"],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        check=True
+                    )
+                    logger.info(f"Found FFmpeg at: {ffmpeg_path}")
+                    return True
+                except Exception:
+                    pass
+    
+    return False
+
+
+def convert_audio_format(audio_path: str) -> Optional[str]:
+    """
+    Convert unsupported audio formats to WAV using pydub if available.
+    
+    Args:
+        audio_path: Path to audio file
+        
+    Returns:
+        Path to WAV file (converted), or None if conversion failed
+    """
+    # Check if already WAV
+    if audio_path.lower().endswith('.wav'):
+        return audio_path
+    
+    # Try using pydub for format conversion
+    try:
+        from pydub import AudioSegment
+        
+        logger.info(f"Attempting to convert {audio_path} to WAV format...")
+        
+        # Load audio with pydub (supports .3gp, .aac, etc. if ffmpeg is installed)
+        try:
+            audio = AudioSegment.from_file(audio_path)
+        except Exception as e:
+            logger.warning(f"pydub could not load {audio_path}: {e}")
+            return None
+        
+        # Export as WAV to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_wav:
+            wav_path = temp_wav.name
+        
+        audio.export(wav_path, format="wav")
+        logger.info(f"Successfully converted to WAV: {wav_path}")
+        return wav_path
+            
+    except ImportError:
+        logger.debug("pydub not installed for audio format conversion")
+        return None
+    except Exception as e:
+        logger.warning(f"Audio format conversion failed: {e}")
+        return None
+
+
+def load_audio_librosa(audio_path: str, sr: int = 16000) -> np.ndarray:
+    """
+    Load audio using librosa (fallback when ffmpeg is not available).
+    Supports format conversion using pydub if needed.
+    
+    Args:
+        audio_path: Path to audio file
+        sr: Target sample rate (Whisper expects 16kHz)
+        
+    Returns:
+        Audio data as numpy array
+        
+    Raises:
+        Exception: If audio cannot be loaded or converted
+    """
+    import librosa
+    import soundfile as sf
+    
+    try:
+        # Try librosa first (best case)
+        logger.info(f"Loading audio with librosa: {audio_path}")
+        audio, _ = librosa.load(audio_path, sr=sr, mono=True)
+        logger.info(f"Successfully loaded audio with librosa")
+        return audio
+    except Exception as librosa_error:
+        logger.warning(f"librosa failed: {librosa_error}")
+        
+        # Check file extension
+        file_ext = audio_path.lower().split('.')[-1]
+        logger.info(f"Audio file extension: .{file_ext}")
+        
+        # Try format conversion for unsupported formats
+        if file_ext not in ['wav', 'mp3', 'flac', 'ogg']:
+            logger.info(f"Format .{file_ext} requires conversion to WAV")
+            converted_path = convert_audio_format(audio_path)
+            
+            if converted_path and converted_path != audio_path:
+                # Retry with converted WAV file
+                try:
+                    logger.info(f"Retrying with converted audio: {converted_path}")
+                    audio, _ = librosa.load(converted_path, sr=sr, mono=True)
+                    logger.info(f"Successfully loaded converted audio with librosa")
+                    return audio
+                except Exception as retry_error:
+                    logger.error(f"Failed to load converted audio: {retry_error}")
+            else:
+                # Conversion failed or not attempted
+                logger.error(
+                    f"Cannot convert .{file_ext} files without ffmpeg. "
+                    f"Please install ffmpeg from https://ffmpeg.org/download.html"
+                )
+        
+        # Try soundfile as fallback for supported formats
+        try:
+            logger.info("Trying soundfile as fallback")
+            audio, sample_rate = sf.read(audio_path)
+            
+            # Convert to mono if stereo
+            if len(audio.shape) > 1:
+                audio = audio.mean(axis=1)
+            
+            # Resample if needed
+            if sample_rate != sr:
+                import scipy.signal
+                audio = scipy.signal.resample(
+                    audio,
+                    int(len(audio) * sr / sample_rate)
+                )
+            
+            logger.info("Successfully loaded audio with soundfile")
+            return audio.astype(np.float32)
+            
+        except Exception as soundfile_error:
+            logger.error(f"soundfile also failed: {soundfile_error}")
+            # Re-raise with helpful context
+            raise RuntimeError(
+                f"Cannot load audio file {audio_path}. "
+                f"Formats like .3gp require ffmpeg. "
+                f"Install ffmpeg from: https://ffmpeg.org/download.html"
+            ) from soundfile_error
 
 
 class WhisperService:
@@ -41,6 +213,16 @@ class WhisperService:
         self.model_size = model_size
         self.model = None
         self.device = None
+        self.ffmpeg_available = check_ffmpeg_available()
+        
+        if not self.ffmpeg_available:
+            logger.warning(
+                "⚠️ ffmpeg not found in system PATH. "
+                "Using librosa/soundfile fallback for audio loading. "
+                "For better performance, install ffmpeg: https://ffmpeg.org/download.html"
+            )
+        else:
+            logger.info("✅ ffmpeg detected and available")
 
         logger.info(f"Initializing Whisper service with model size: {model_size}")
         self._load_model()
@@ -117,9 +299,18 @@ class WhisperService:
         try:
             logger.info(f"Transcribing audio: {audio_path}")
 
+            # Load audio - use librosa if ffmpeg is not available
+            if self.ffmpeg_available:
+                # Use Whisper's default audio loading (requires ffmpeg)
+                audio_input = audio_path
+            else:
+                # Use librosa fallback
+                logger.info("Loading audio with librosa (ffmpeg not available)...")
+                audio_input = load_audio_librosa(audio_path)
+
             # Transcribe
             result = self.model.transcribe(
-                audio_path,
+                audio_input,
                 language=language,
                 task=task,
                 fp16=False  # Use FP32 for better compatibility

@@ -630,6 +630,8 @@ async def get_patient_dashboard(
         
         # Verify caregiver has access to this patient
         profile = await service.get_caregiver_by_id(caregiver_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Caregiver profile not found")
         if patient_id not in profile.get("patient_ids", []):
             raise HTTPException(status_code=403, detail="Access denied to this patient")
         
@@ -644,14 +646,14 @@ async def get_patient_dashboard(
         start_of_week = datetime.now() - timedelta(days=datetime.now().weekday())
         current_week_reminders = [
             r for r in all_reminders 
-            if datetime.fromisoformat(r["scheduled_time"]) >= start_of_week
+            if _parse_datetime(r.get("scheduled_time")) >= start_of_week
         ]
         
         # Calculate statistics
         total_reminders = len(current_week_reminders)
-        completed = sum(1 for r in current_week_reminders if r["status"] == "completed")
-        missed = sum(1 for r in current_week_reminders if r["status"] == "missed")
-        pending = sum(1 for r in current_week_reminders if r["status"] == "active")
+        completed = sum(1 for r in current_week_reminders if r.get("status") == "completed")
+        missed = sum(1 for r in current_week_reminders if r.get("status") == "missed")
+        pending = sum(1 for r in current_week_reminders if r.get("status") == "active")
         
         completion_rate = (completed / total_reminders * 100) if total_reminders > 0 else 0
         
@@ -686,9 +688,9 @@ async def get_patient_dashboard(
         last_week_start = start_of_week - timedelta(days=7)
         last_week_reminders = [
             r for r in all_reminders 
-            if last_week_start <= datetime.fromisoformat(r["scheduled_time"]) < start_of_week
+            if last_week_start <= _parse_datetime(r.get("scheduled_time")) < start_of_week
         ]
-        last_week_completed = sum(1 for r in last_week_reminders if r["status"] == "completed")
+        last_week_completed = sum(1 for r in last_week_reminders if r.get("status") == "completed")
         last_week_total = len(last_week_reminders)
         last_week_rate = (last_week_completed / last_week_total * 100) if last_week_total > 0 else 0
         week_change = completion_rate - last_week_rate
@@ -753,6 +755,8 @@ async def get_patient_reminders(
         
         # Verify caregiver has access to this patient
         profile = await service.get_caregiver_by_id(caregiver_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Caregiver profile not found")
         if patient_id not in profile.get("patient_ids", []):
             raise HTTPException(status_code=403, detail="Access denied to this patient")
         
@@ -766,7 +770,7 @@ async def get_patient_reminders(
         cutoff_date = datetime.now() - timedelta(days=days)
         filtered_reminders = [
             r for r in all_reminders
-            if datetime.fromisoformat(r["scheduled_time"]) >= cutoff_date
+            if _parse_datetime(r["scheduled_time"]) >= cutoff_date
         ]
         
         # Filter by status if provided
@@ -779,7 +783,7 @@ async def get_patient_reminders(
         
         # Sort by scheduled time (most recent first)
         filtered_reminders.sort(
-            key=lambda x: datetime.fromisoformat(x["scheduled_time"]), 
+            key=lambda x: _parse_datetime(x["scheduled_time"]), 
             reverse=True
         )
         
@@ -853,19 +857,19 @@ async def get_missed_reminders(
         cutoff_date = datetime.now() - timedelta(days=days)
         missed_reminders = [
             r for r in all_reminders
-            if r["status"] == "missed" and datetime.fromisoformat(r["scheduled_time"]) >= cutoff_date
+            if r["status"] == "missed" and _parse_datetime(r["scheduled_time"]) >= cutoff_date
         ]
         
         # Sort by scheduled time (most recent first)
         missed_reminders.sort(
-            key=lambda x: datetime.fromisoformat(x["scheduled_time"]),
+            key=lambda x: _parse_datetime(x["scheduled_time"]),
             reverse=True
         )
         
         # Format for frontend
         formatted_missed = []
         for reminder in missed_reminders:
-            scheduled_time = datetime.fromisoformat(reminder["scheduled_time"])
+            scheduled_time = _parse_datetime(reminder["scheduled_time"])
             formatted_missed.append({
                 "id": reminder["id"],
                 "title": reminder["title"],
@@ -922,17 +926,17 @@ async def get_snoozed_reminders(
         snoozed_reminders = [
             r for r in all_reminders
             if r["status"] == "snoozed"
-            and datetime.fromisoformat(r["scheduled_time"]) >= cutoff_date
+            and _parse_datetime(r["scheduled_time"]) >= cutoff_date
         ]
 
         snoozed_reminders.sort(
-            key=lambda x: datetime.fromisoformat(x["scheduled_time"]),
+            key=lambda x: _parse_datetime(x["scheduled_time"]),
             reverse=True
         )
 
         formatted_snoozed = []
         for reminder in snoozed_reminders:
-            scheduled_time = datetime.fromisoformat(reminder["scheduled_time"])
+            scheduled_time = _parse_datetime(reminder["scheduled_time"])
             snoozed_until = reminder.get("snoozed_until")
             formatted_snoozed.append({
                 "id": reminder["id"],
@@ -998,36 +1002,36 @@ async def get_reminders_grouped(
         cutoff_date = datetime.now() - timedelta(days=days)
         period_reminders = [
             r for r in all_reminders
-            if datetime.fromisoformat(r["scheduled_time"]) >= cutoff_date
+            if _parse_datetime(r.get("scheduled_time")) >= cutoff_date
         ]
 
         # Sort newest first
         period_reminders.sort(
-            key=lambda x: datetime.fromisoformat(x["scheduled_time"]),
+            key=lambda x: _parse_datetime(x.get("scheduled_time")),
             reverse=True
         )
 
         def _fmt(r: dict) -> dict:
-            t = datetime.fromisoformat(r["scheduled_time"])
+            t = _parse_datetime(r.get("scheduled_time"))
             return {
-                "id": r["id"],
-                "title": r["title"],
+                "id": r.get("id", "unknown"),
+                "title": r.get("title", "Untitled Reminder"),
                 "description": r.get("description"),
                 "scheduled_time": t.strftime("%b %d at %I:%M %p"),
-                "scheduled_datetime": r["scheduled_time"],
+                "scheduled_datetime": r.get("scheduled_time"),
                 "category": r.get("category", "general"),
                 "priority": r.get("priority", "medium"),
-                "status": r["status"],
+                "status": r.get("status", "active"),
                 "snooze_count": r.get("snooze_count", 0),
                 "completed_at": r.get("completed_at"),
                 "tag_color": _get_category_color(r.get("category", "general"))
             }
 
         grouped = {
-            "active":    [_fmt(r) for r in period_reminders if r["status"] == "active"],
-            "completed": [_fmt(r) for r in period_reminders if r["status"] == "completed"],
-            "missed":    [_fmt(r) for r in period_reminders if r["status"] == "missed"],
-            "snoozed":   [_fmt(r) for r in period_reminders if r["status"] == "snoozed"],
+            "active":    [_fmt(r) for r in period_reminders if r.get("status") == "active"],
+            "completed": [_fmt(r) for r in period_reminders if r.get("status") == "completed"],
+            "missed":    [_fmt(r) for r in period_reminders if r.get("status") == "missed"],
+            "snoozed":   [_fmt(r) for r in period_reminders if r.get("status") == "snoozed"],
         }
 
         total = len(period_reminders)
@@ -1080,6 +1084,8 @@ async def get_adherence_and_risk_score(
         caregiver_id = current_caregiver["caregiver_id"]
 
         profile = await service.get_caregiver_by_id(caregiver_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Caregiver profile not found")
         if patient_id not in profile.get("patient_ids", []):
             raise HTTPException(status_code=403, detail="Access denied to this patient")
 
@@ -1090,16 +1096,16 @@ async def get_adherence_and_risk_score(
         cutoff_date = datetime.now() - timedelta(days=days)
         period_reminders = [
             r for r in all_reminders
-            if datetime.fromisoformat(r["scheduled_time"]) >= cutoff_date
+            if _parse_datetime(r.get("scheduled_time")) >= cutoff_date
         ]
 
         total = len(period_reminders)
-        completed = sum(1 for r in period_reminders if r["status"] == "completed")
-        missed = sum(1 for r in period_reminders if r["status"] == "missed")
-        snoozed = sum(1 for r in period_reminders if r["status"] == "snoozed")
+        completed = sum(1 for r in period_reminders if r.get("status") == "completed")
+        missed = sum(1 for r in period_reminders if r.get("status") == "missed")
+        snoozed = sum(1 for r in period_reminders if r.get("status") == "snoozed")
         missed_critical = sum(
             1 for r in period_reminders
-            if r["status"] == "missed" and r.get("priority") in ("high", "critical")
+            if r.get("status") == "missed" and r.get("priority") in ("high", "critical")
         )
         snoozed_repeatedly = sum(
             1 for r in period_reminders
@@ -1145,8 +1151,8 @@ async def get_adherence_and_risk_score(
         cutoff_first_half = datetime.now() - timedelta(days=days)
         cutoff_second_half = datetime.now() - timedelta(days=half_days)
 
-        first_half = [r for r in period_reminders if datetime.fromisoformat(r["scheduled_time"]) < cutoff_second_half]
-        second_half = [r for r in period_reminders if datetime.fromisoformat(r["scheduled_time"]) >= cutoff_second_half]
+        first_half = [r for r in period_reminders if _parse_datetime(r["scheduled_time"]) < cutoff_second_half]
+        second_half = [r for r in period_reminders if _parse_datetime(r["scheduled_time"]) >= cutoff_second_half]
 
         def _compliance(reminders_list: list) -> float:
             t = len(reminders_list)
@@ -1250,7 +1256,7 @@ async def get_adherence_risk(
         cutoff_date = datetime.now() - timedelta(days=days)
         period_reminders = [
             r for r in all_reminders
-            if datetime.fromisoformat(r["scheduled_time"]) >= cutoff_date
+            if _parse_datetime(r["scheduled_time"]) >= cutoff_date
         ]
 
         total = len(period_reminders)
@@ -1276,12 +1282,12 @@ async def get_adherence_risk(
 
         # Trend
         half_days = days // 2
-        first_half = [r for r in period_reminders if datetime.fromisoformat(r["scheduled_time"]) < datetime.now() - timedelta(days=half_days)]
-        second_half = [r for r in period_reminders if datetime.fromisoformat(r["scheduled_time"]) >= datetime.now() - timedelta(days=half_days)]
+        first_half = [r for r in period_reminders if _parse_datetime(r.get("scheduled_time")) < datetime.now() - timedelta(days=half_days)]
+        second_half = [r for r in period_reminders if _parse_datetime(r.get("scheduled_time")) >= datetime.now() - timedelta(days=half_days)]
 
         def _compliance(lst):
             t = len(lst)
-            c = sum(1 for r in lst if r["status"] == "completed")
+            c = sum(1 for r in lst if r.get("status") == "completed")
             return (c / t * 100) if t > 0 else 0.0
 
         delta = _compliance(second_half) - _compliance(first_half)
@@ -1342,6 +1348,8 @@ async def get_activity_completion(
         
         # Verify caregiver has access to this patient
         profile = await service.get_caregiver_by_id(caregiver_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Caregiver profile not found")
         if patient_id not in profile.get("patient_ids", []):
             raise HTTPException(status_code=403, detail="Access denied to this patient")
         
@@ -1354,7 +1362,7 @@ async def get_activity_completion(
         cutoff_date = datetime.now() - timedelta(days=days)
         recent_reminders = [
             r for r in all_reminders
-            if datetime.fromisoformat(r["scheduled_time"]) >= cutoff_date
+            if _parse_datetime(r.get("scheduled_time")) >= cutoff_date
         ]
         
         # Group by category and calculate completion rates
@@ -1374,7 +1382,7 @@ async def get_activity_completion(
             
             if category_reminders:
                 total = len(category_reminders)
-                completed = sum(1 for r in category_reminders if r["status"] == "completed")
+                completed = sum(1 for r in category_reminders if r.get("status") == "completed")
                 completion_rate = round((completed / total * 100)) if total > 0 else 0
                 
                 category_completion[activity_name] = {
@@ -1430,6 +1438,8 @@ async def get_medication_schedule(
         
         # Verify caregiver has access to this patient
         profile = await service.get_caregiver_by_id(caregiver_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Caregiver profile not found")
         if patient_id not in profile.get("patient_ids", []):
             raise HTTPException(status_code=403, detail="Access denied to this patient")
         
@@ -1442,7 +1452,7 @@ async def get_medication_schedule(
         cutoff_date = datetime.now() - timedelta(days=days)
         medication_reminders = [
             r for r in all_reminders
-            if r.get("category") == "medication" and datetime.fromisoformat(r["scheduled_time"]) >= cutoff_date
+            if r.get("category") == "medication" and _parse_datetime(r.get("scheduled_time")) >= cutoff_date
         ]
         
         # Group by medication name
@@ -1461,11 +1471,11 @@ async def get_medication_schedule(
                 }
             
             medications[med_name]["total"] += 1
-            if reminder["status"] == "completed":
+            if reminder.get("status") == "completed":
                 medications[med_name]["completed"] += 1
             
             # Track daily schedule
-            scheduled_time = datetime.fromisoformat(reminder["scheduled_time"])
+            scheduled_time = _parse_datetime(reminder.get("scheduled_time"))
             day_name = scheduled_time.strftime("%a")  # Mon, Tue, etc.
             time_str = scheduled_time.strftime("%I:%M %p")
             
@@ -1477,8 +1487,8 @@ async def get_medication_schedule(
             
             medications[med_name]["schedule"][day_name].append({
                 "time": time_str,
-                "status": reminder["status"],
-                "taken": reminder["status"] == "completed"
+                "status": reminder.get("status", "active"),
+                "taken": reminder.get("status") == "completed"
             })
         
         # Calculate adherence
@@ -1792,6 +1802,29 @@ def _calculate_risk_level(cognitive_risk_score: Optional[float]) -> str:
         return "low"
 
 
+def _parse_datetime(value: Any, fallback: Optional[datetime] = None) -> datetime:
+    """Parse datetime from mixed DB values (datetime, ISO string, epoch)."""
+    if fallback is None:
+        fallback = datetime.min
+
+    try:
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str):
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        elif isinstance(value, (int, float)):
+            parsed = datetime.fromtimestamp(value)
+        else:
+            return fallback
+
+        # Normalize timezone-aware values to naive for comparisons with datetime.now().
+        if parsed.tzinfo is not None:
+            parsed = parsed.replace(tzinfo=None)
+        return parsed
+    except Exception:
+        return fallback
+
+
 def _get_last_activity_time(reminders: List[Dict[str, Any]]) -> str:
     """Get the last activity time in human-readable format."""
     if not reminders:
@@ -1803,8 +1836,8 @@ def _get_last_activity_time(reminders: List[Dict[str, Any]]) -> str:
     if not completed_reminders:
         return "No completed activities"
     
-    latest = max(completed_reminders, key=lambda x: datetime.fromisoformat(x["completed_at"]))
-    completed_time = datetime.fromisoformat(latest["completed_at"])
+    latest = max(completed_reminders, key=lambda x: _parse_datetime(x["completed_at"]))
+    completed_time = _parse_datetime(latest["completed_at"])
     
     # Calculate time difference
     now = datetime.now()

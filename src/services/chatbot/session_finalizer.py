@@ -167,7 +167,7 @@ class SessionFinalizer:
         """
         try:
             db = Database.db
-            if not db:
+            if db is None:
                 logger.warning("Database not connected, skipping finalization check")
                 return
 

@@ -27,6 +27,9 @@ openai-whisper
 # Noise reduction
 noisereduce==3.0.3
 
+# Audio format conversion
+pydub>=0.25.1
+
 # Database (SQLite for dev, extendable to PostgreSQL)
 sqlalchemy==2.0.23
 

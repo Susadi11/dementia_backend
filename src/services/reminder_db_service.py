@@ -157,6 +157,10 @@ class ReminderDatabaseService:
             reminders = []
             async for doc in cursor:
                 doc["id"] = str(doc.pop("_id"))
+                # Normalize datetime-like fields so route handlers can parse consistently.
+                for key in ("scheduled_time", "created_at", "updated_at", "completed_at", "alarm_triggered_at"):
+                    if isinstance(doc.get(key), datetime):
+                        doc[key] = doc[key].isoformat()
                 reminders.append(doc)
                 
             logger.info(f"Retrieved {len(reminders)} reminders for user {user_id}")
