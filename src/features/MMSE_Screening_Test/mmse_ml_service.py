@@ -8,6 +8,7 @@ import joblib
 import numpy as np
 import whisper
 from dotenv import load_dotenv
+from huggingface_hub import hf_hub_download
 
 load_dotenv()
 
@@ -42,7 +43,22 @@ class MMSEModels:
         self.audio_model = joblib.load(os.path.join(model_base, "best_audio_model.pkl"))
         self.audio_scaler = joblib.load(os.path.join(model_base, "audio_scaler.pkl"))
 
-        self.text_model = joblib.load(os.path.join(model_base, "best_text_model.pkl"))
+        # Load text model from Hugging Face Hub (with fallback to local)
+        try:
+            print(f"[MMSE] Downloading text model from Hugging Face: katharushimethmini02/best_text_model")
+            text_model_repo = "katharushimethmini02/best_text_model"
+            text_model_filename = "best_text_model.pkl"
+            
+            hf_model_path = hf_hub_download(
+                repo_id=text_model_repo,
+                filename=text_model_filename
+            )
+            self.text_model = joblib.load(hf_model_path)
+            print(f"[MMSE] Successfully loaded text model from Hugging Face")
+        except Exception as e:
+            print(f"[MMSE] Warning: Could not download model from HF ({e}). Using local fallback.")
+            self.text_model = joblib.load(os.path.join(model_base, "best_text_model.pkl"))
+
         self.text_tfidf = joblib.load(os.path.join(model_base, "text_tfidf.pkl"))
         self.text_pca = joblib.load(os.path.join(model_base, "text_pca.pkl"))
 
