@@ -3,6 +3,8 @@ from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 import logging
+import asyncio
+from functools import partial
 
 from src.services.chatbot import (
     get_chatbot,
@@ -79,13 +81,18 @@ async def process_text_chat(request: TextQuery) -> ChatResponse:
         # Use 'message' if present, otherwise fall back to 'text'
         user_message = request.message
 
-        result = chatbot.generate_response(
-            user_message=user_message,
-            user_id=request.user_id,
-            session_id=request.session_id,
-            max_tokens=request.max_tokens,
-            temperature=request.temperature,
-            use_history=request.use_history
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            partial(
+                chatbot.generate_response,
+                user_message=user_message,
+                user_id=request.user_id,
+                session_id=request.session_id,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                use_history=request.use_history
+            )
         )
 
         # ==================== AUTOMATIC 12-PARAMETER DETECTION ====================
@@ -301,12 +308,17 @@ async def process_voice_chat(
             # (This happens automatically inside the chatbot service)
             logger.info("[GENERATE] Step 2-4: NLP analysis -> Prompt building -> LLaMA generation...")
             chatbot = get_chatbot()
-            result = chatbot.generate_response(
-                user_message=transcribed_text,
-                user_id=user_id,
-                session_id=session_id,
-                max_tokens=max_tokens,
-                temperature=temperature
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                partial(
+                    chatbot.generate_response,
+                    user_message=transcribed_text,
+                    user_id=user_id,
+                    session_id=session_id,
+                    max_tokens=max_tokens,
+                    temperature=temperature
+                )
             )
 
             # Add transcription info to metadata
