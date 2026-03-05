@@ -190,15 +190,16 @@ def create_tokens_for_patient(patient: Dict[str, Any]) -> Dict[str, str]:
     Returns:
         Dictionary with access_token and refresh_token
     """
+    user_id = patient.get("user_id") or patient.get("patient_id") or str(patient.get("_id", ""))
     token_data = {
-        "patient_id": patient.get("patient_id") or patient.get("_id"),
+        "user_id": user_id,
         "email": patient.get("email", ""),
-        "role": "patient",
-        "name": patient.get("name", "")
+        "role": "user",  # must match get_current_user role check
+        "name": patient.get("name", patient.get("full_name", ""))
     }
-    
+
     access_token = create_access_token(token_data)
-    refresh_token = create_refresh_token({"patient_id": patient.get("patient_id") or patient.get("_id")})
+    refresh_token = create_refresh_token({"user_id": user_id, "role": "user"})
     
     return {
         "access_token": access_token,

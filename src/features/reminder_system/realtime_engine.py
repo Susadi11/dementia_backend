@@ -48,6 +48,15 @@ class RealTimeReminderEngine:
         self.user_connections: Dict[str, WebSocket] = {}
         self.caregiver_connections: Dict[str, WebSocket] = {}
         
+        # Alarm acknowledgment tracking
+        # Format: {reminder_id: {"user_id": str, "triggered_at": datetime, "repeat_count": int, "last_repeat_at": datetime}}
+        self.active_alarms: Dict[str, Dict[str, Any]] = {}
+        
+        # Alarm configuration
+        self.alarm_first_timeout_seconds = 30  # Wait 30 seconds for first response
+        self.alarm_repeat_timeout_seconds = 180  # Wait 3 minutes between repeats
+        self.alarm_max_repeats = 3  # Maximum number of repeats before escalation
+        
         # Background task control
         self.is_running = False
         self.reminder_check_interval = 30  # seconds
@@ -63,6 +72,7 @@ class RealTimeReminderEngine:
         
         # Start background tasks
         asyncio.create_task(self._reminder_scheduler_task())
+        asyncio.create_task(self._alarm_timeout_monitor_task())
         asyncio.create_task(self._behavior_analysis_task())
         asyncio.create_task(self._cleanup_task())
     
@@ -117,6 +127,8 @@ class RealTimeReminderEngine:
             logger.warning(f"No active connection for user {user_id}, cannot deliver reminder")
             return False
         
+        now = datetime.now()
+        
         reminder_message = {
             "type": "reminder",
             "reminder_id": reminder.id,
@@ -125,7 +137,9 @@ class RealTimeReminderEngine:
             "priority": reminder.priority.value,
             "category": reminder.category,
             "scheduled_time": reminder.scheduled_time.isoformat(),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": now.isoformat(),
+            "requires_acknowledgment": True,  # Frontend must get explicit confirmation
+            "timeout_seconds": self.alarm_first_timeout_seconds
         }
         
         try:
@@ -133,11 +147,30 @@ class RealTimeReminderEngine:
             if success:
                 logger.info(f"Reminder {reminder.id} delivered to user {user_id}")
                 
-                # Update reminder status
+                # Track as active alarm awaiting acknowledgment
+                self.active_alarms[reminder.id] = {
+                    "user_id": user_id,
+                    "reminder": reminder,
+                    "triggered_at": now,
+                    "last_repeat_at": now,
+                    "repeat_count": 0,
+                    "priority": reminder.priority.value,
+                    "category": reminder.category,
+                    "caregiver_ids": reminder.caregiver_ids,
+                    "escalation_enabled": reminder.escalation_enabled
+                }
+                
+                # Update reminder status to 'awaiting_acknowledgment'
                 await self.db_service.update_reminder(
                     reminder.id, 
-                    {"status": "delivered", "delivered_at": datetime.now().isoformat()}
+                    {
+                        "status": "awaiting_acknowledgment", 
+                        "delivered_at": now.isoformat(),
+                        "alarm_triggered_at": now.isoformat()
+                    }
                 )
+                
+                logger.info(f"Alarm tracking started for reminder {reminder.id}, timeout in {self.alarm_first_timeout_seconds}s")
             return success
         except Exception as e:
             logger.error(f"Failed to deliver reminder {reminder.id}: {e}")
@@ -222,6 +255,59 @@ class RealTimeReminderEngine:
                 logger.error(f"Error in reminder scheduler task: {e}")
                 await asyncio.sleep(60)  # Wait longer on error
     
+    async def _alarm_timeout_monitor_task(self):
+        """
+        Background task that monitors unacknowledged alarms.
+        
+        - Checks every 10 seconds for alarms that need attention
+        - Repeats alarms if not acknowledged within timeout
+        - Escalates to caregivers after max repeats
+        - Marks as 'missed' if ignored completely
+        """
+        logger.info("Started alarm timeout monitor task")
+        
+        while self.is_running:
+            try:
+                now = datetime.now()
+                alarms_to_remove = []
+                
+                for reminder_id, alarm_data in list(self.active_alarms.items()):
+                    triggered_at = alarm_data["triggered_at"]
+                    last_repeat_at = alarm_data["last_repeat_at"]
+                    repeat_count = alarm_data["repeat_count"]
+                    user_id = alarm_data["user_id"]
+                    reminder = alarm_data["reminder"]
+                    
+                    # Calculate time since last action
+                    if repeat_count == 0:
+                        # First alarm - use shorter timeout
+                        time_since_trigger = (now - triggered_at).total_seconds()
+                        timeout = self.alarm_first_timeout_seconds
+                    else:
+                        # Subsequent repeats - use longer timeout (3 minutes)
+                        time_since_trigger = (now - last_repeat_at).total_seconds()
+                        timeout = self.alarm_repeat_timeout_seconds
+                    
+                    # Check if timeout exceeded
+                    if time_since_trigger >= timeout:
+                        if repeat_count < self.alarm_max_repeats:
+                            # REPEAT THE ALARM
+                            await self._repeat_alarm(reminder_id, alarm_data)
+                        else:
+                            # MAX REPEATS REACHED - ESCALATE
+                            await self._escalate_missed_alarm(reminder_id, alarm_data)
+                            alarms_to_remove.append(reminder_id)
+                
+                # Clean up escalated alarms
+                for reminder_id in alarms_to_remove:
+                    del self.active_alarms[reminder_id]
+                
+                await asyncio.sleep(10)  # Check every 10 seconds
+                
+            except Exception as e:
+                logger.error(f"Error in alarm timeout monitor: {e}", exc_info=True)
+                await asyncio.sleep(30)
+    
     async def _behavior_analysis_task(self):
         """Background task for updating user behavior patterns."""
         while self.is_running:
@@ -246,6 +332,228 @@ class RealTimeReminderEngine:
             except Exception as e:
                 logger.error(f"Error in cleanup task: {e}")
                 await asyncio.sleep(600)  # 10 minutes on error
+    
+    # ===== ALARM ACKNOWLEDGMENT & ESCALATION =====
+    
+    async def acknowledge_alarm(self, reminder_id: str, user_id: str, acknowledgment_method: str = "tap") -> bool:
+        """
+        Acknowledge an alarm - user has confirmed they saw/heard it.
+        
+        Args:
+            reminder_id: Reminder identifier
+            user_id: User who acknowledged
+            acknowledgment_method: How they acknowledged (tap, verbal, button)
+        
+        Returns:
+            True if acknowledged successfully
+        """
+        if reminder_id not in self.active_alarms:
+            logger.warning(f"Alarm {reminder_id} not found in active alarms (already acknowledged or expired)")
+            return False
+        
+        alarm_data = self.active_alarms[reminder_id]
+        
+        # Calculate response time
+        triggered_at = alarm_data["triggered_at"]
+        response_time_seconds = (datetime.now() - triggered_at).total_seconds()
+        repeat_count = alarm_data["repeat_count"]
+        
+        logger.info(
+            f"Alarm {reminder_id} acknowledged by user {user_id} "
+            f"via {acknowledgment_method} after {response_time_seconds:.1f}s "
+            f"({repeat_count} repeats)"
+        )
+        
+        # Remove from active alarms (alarm is stopped)
+        del self.active_alarms[reminder_id]
+        
+        # Update reminder status
+        await self.db_service.update_reminder(
+            reminder_id,
+            {
+                "status": "acknowledged",
+                "acknowledged_at": datetime.now().isoformat(),
+                "acknowledgment_method": acknowledgment_method,
+                "response_time_seconds": response_time_seconds,
+                "alarm_repeat_count": repeat_count
+            }
+        )
+        
+        # Log interaction for behavior tracking
+        from src.features.reminder_system.reminder_models import InteractionType
+        interaction = ReminderInteraction(
+            reminder_id=reminder_id,
+            user_id=user_id,
+            reminder_category=alarm_data.get("category"),
+            interaction_type=InteractionType.CONFIRMED,
+            interaction_time=datetime.now(),
+            response_time_seconds=response_time_seconds,
+            user_response_text=f"Acknowledged via {acknowledgment_method}"
+        )
+        self.behavior_tracker.log_interaction(interaction)
+        
+        # Send confirmation to user
+        await self._send_user_message(user_id, {
+            "type": "alarm_acknowledged",
+            "reminder_id": reminder_id,
+            "message": "Alarm acknowledged - reminder stopped",
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        return True
+    
+    async def _repeat_alarm(self, reminder_id: str, alarm_data: Dict[str, Any]):
+        """
+        Repeat an alarm that wasn't acknowledged.
+        
+        Sends the alarm notification again to the user's device.
+        """
+        user_id = alarm_data["user_id"]
+        reminder = alarm_data["reminder"]
+        repeat_count = alarm_data["repeat_count"] + 1
+        
+        logger.warning(
+            f"⏰ REPEATING ALARM {reminder_id} (repeat #{repeat_count}) - "
+            f"User {user_id} has not acknowledged"
+        )
+        
+        # Update repeat tracking
+        alarm_data["repeat_count"] = repeat_count
+        alarm_data["last_repeat_at"] = datetime.now()
+        
+        # Send repeat alarm to user
+        repeat_message = {
+            "type": "reminder_repeat",
+            "reminder_id": reminder_id,
+            "title": reminder.title,
+            "description": reminder.description,
+            "priority": reminder.priority.value,
+            "category": reminder.category,
+            "repeat_count": repeat_count,
+            "message": f"⚠️ REMINDER (Repeat #{repeat_count}): {reminder.title}",
+            "urgency": "high" if repeat_count >= 2 else "medium",
+            "timestamp": datetime.now().isoformat(),
+            "requires_acknowledgment": True
+        }
+        
+        await self._send_user_message(user_id, repeat_message)
+        
+        # Update database
+        await self.db_service.update_reminder(
+            reminder_id,
+            {
+                "alarm_repeat_count": repeat_count,
+                "last_repeat_at": datetime.now().isoformat()
+            }
+        )
+        
+        logger.info(f"Alarm {reminder_id} repeated (#{repeat_count}), next check in {self.alarm_repeat_timeout_seconds}s")
+    
+    async def _escalate_missed_alarm(self, reminder_id: str, alarm_data: Dict[str, Any]):
+        """
+        Escalate a missed alarm to caregivers.
+        
+        Called when user has ignored alarm for max repeats.
+        - Notifies caregivers (especially for high priority)
+        - Marks reminder as 'missed'
+        - Logs as ignored interaction
+        """
+        user_id = alarm_data["user_id"]
+        reminder = alarm_data["reminder"]
+        repeat_count = alarm_data["repeat_count"]
+        priority = alarm_data["priority"]
+        caregiver_ids = alarm_data["caregiver_ids"]
+        escalation_enabled = alarm_data.get("escalation_enabled", True)
+        
+        logger.error(
+            f"🚨 ALARM MISSED: Reminder {reminder_id} ignored by user {user_id} "
+            f"after {repeat_count} repeats. Priority: {priority}"
+        )
+        
+        # Mark as MISSED in database
+        await self.db_service.update_reminder(
+            reminder_id,
+            {
+                "status": "missed",
+                "missed_at": datetime.now().isoformat(),
+                "alarm_repeat_count": repeat_count,
+                "escalated_to_caregiver": escalation_enabled
+            }
+        )
+        
+        # Log as IGNORED interaction
+        from src.features.reminder_system.reminder_models import InteractionType
+        interaction = ReminderInteraction(
+            reminder_id=reminder_id,
+            user_id=user_id,
+            reminder_category=alarm_data.get("category"),
+            interaction_type=InteractionType.IGNORED,
+            interaction_time=datetime.now(),
+            user_response_text=None,
+            response_time_seconds=None  # No response
+        )
+        self.behavior_tracker.log_interaction(interaction)
+        
+        # ESCALATE TO CAREGIVERS (if enabled and priority is high/critical)
+        if escalation_enabled and priority in ["high", "critical"] and caregiver_ids:
+            logger.info(f"Escalating to {len(caregiver_ids)} caregiver(s) for missed {priority} priority reminder")
+            
+            # Send alerts to all caregivers
+            for caregiver_id in caregiver_ids:
+                # Use caregiver notifier
+                await self._notify_caregiver_of_missed_alarm(
+                    caregiver_id, user_id, reminder, repeat_count
+                )
+        
+        # Notify user that alarm was missed
+        await self._send_user_message(user_id, {
+            "type": "alarm_missed",
+            "reminder_id": reminder_id,
+            "message": f"⚠️ You missed: {reminder.title}. Caregiver has been notified.",
+            "timestamp": datetime.now().isoformat()
+        })
+    
+    async def _notify_caregiver_of_missed_alarm(
+        self, 
+        caregiver_id: str, 
+        user_id: str, 
+        reminder: Reminder,
+        repeat_count: int
+    ):
+        """Send missed alarm alert to caregiver."""
+        severity = "critical" if reminder.priority.value == "critical" else "high"
+        
+        alert_message = {
+            "type": "missed_alarm_alert",
+            "alert_id": f"alert_{reminder.id}_{datetime.now().timestamp()}",
+            "user_id": user_id,
+            "reminder_id": reminder.id,
+            "severity": severity,
+            "priority": reminder.priority.value,
+            "category": reminder.category,
+            "message": (
+                f"🚨 MISSED ALARM: Patient has not responded to {reminder.title} "
+                f"after {repeat_count} attempts. Please check on patient immediately."
+            ),
+            "reminder_title": reminder.title,
+            "reminder_description": reminder.description,
+            "repeat_attempts": repeat_count,
+            "timestamp": datetime.now().isoformat(),
+            "requires_action": True
+        }
+        
+        # Send via WebSocket
+        await self._send_caregiver_message(caregiver_id, alert_message)
+        
+        # Also use caregiver notifier for multi-channel notification
+        self.caregiver_notifier.send_missed_reminder_alert(
+            caregiver_id=caregiver_id,
+            user_id=user_id,
+            reminder=reminder,
+            missed_count=repeat_count + 1
+        )
+        
+        logger.info(f"Caregiver {caregiver_id} notified of missed alarm {reminder.id}")
     
     # ===== HELPER METHODS =====
     

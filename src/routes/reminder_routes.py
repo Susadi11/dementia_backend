@@ -1267,6 +1267,125 @@ async def complete_reminder(reminder_id: str):
         )
 
 
+@router.post("/acknowledge/{reminder_id}", response_model=dict, status_code=status.HTTP_200_OK)
+async def acknowledge_reminder_alarm(
+    reminder_id: str,
+    user_id: str,
+    acknowledgment_method: str = "tap"
+):
+    """
+    Acknowledge a reminder alarm - user has explicitly confirmed they saw/heard it.
+    
+    This is REQUIRED to stop the alarm from repeating. The workflow is:
+    1. Alarm is triggered (audio plays)
+    2. User presses "Stop" button (alarm keeps playing)
+    3. User must tap screen / say "OK" / press confirm (calls this endpoint)
+    4. Alarm actually stops playing
+    
+    If this endpoint is not called within timeout:
+    - Alarm will repeat after 30 seconds (first time)
+    - Then repeat every 3 minutes
+    - After 3 repeats with no acknowledgment → caregiver is notified
+    - Reminder status becomes "missed"
+    
+    - **reminder_id**: Reminder identifier  
+    - **user_id**: User who is acknowledging
+    - **acknowledgment_method**: How they acknowledged (tap, verbal, button, gesture)
+    """
+    try:
+        from src.features.reminder_system.realtime_engine import RealTimeReminderEngine
+        
+        # Note: In production, you'd get the engine instance from app state
+        # For now, we'll update the database directly and log the interaction
+        
+        db_service = get_db_service()
+        
+        # Get the reminder
+        reminder_data = await db_service.get_reminder(reminder_id)
+        if not reminder_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
+        
+        # Calculate response time if alarm was triggered
+        now = datetime.now()
+        response_time_seconds = None
+        alarm_triggered_at = reminder_data.get("alarm_triggered_at")
+        
+        if alarm_triggered_at:
+            if isinstance(alarm_triggered_at, str):
+                alarm_triggered_at = datetime.fromisoformat(alarm_triggered_at.replace('+00:00', ''))
+            response_time_seconds = (now - alarm_triggered_at).total_seconds()
+        
+        repeat_count = reminder_data.get("alarm_repeat_count", 0)
+        
+        logger.info(
+            f"✅ Reminder {reminder_id} acknowledged by user {user_id} "
+            f"via {acknowledgment_method} after {response_time_seconds:.1f}s "
+            f"(repeated {repeat_count} times)"
+        )
+        
+        # Update reminder status to acknowledged
+        await db_service.update_reminder(
+            reminder_id,
+            {
+                "status": "acknowledged",
+                "acknowledged_at": now.isoformat(),
+                "acknowledgment_method": acknowledgment_method,
+                "response_time_seconds": response_time_seconds
+            }
+        )
+        
+        # Log the interaction for behavior tracking
+        interaction = ReminderInteraction(
+            reminder_id=reminder_id,
+            user_id=user_id,
+            reminder_category=reminder_data.get("category"),
+            interaction_type=InteractionType.CONFIRMED,
+            interaction_time=now,
+            response_time_seconds=response_time_seconds,
+            user_response_text=f"Acknowledged via {acknowledgment_method}"
+        )
+        behavior_tracker.log_interaction(interaction)
+        
+        # ── Behavioral Analysis: auto-log acknowledgment ──────────────────
+        try:
+            _bsvc = _get_behavioral_service()
+            await _bsvc.log_behavioral_event(
+                user_id=user_id,
+                activity_type=ActivityType.REMINDER_RESPONSE,
+                response_type=ResponseType.ACKNOWLEDGED,
+                metadata={
+                    "reminder_id": reminder_id,
+                    "acknowledgment_method": acknowledgment_method,
+                    "response_time_seconds": response_time_seconds,
+                    "repeat_count": repeat_count
+                }
+            )
+        except Exception as be:
+            logger.warning(f"Behavioral logging failed: {be}")
+        
+        return {
+            "status": "success",
+            "message": "Alarm acknowledged - stopped successfully",
+            "reminder_id": reminder_id,
+            "acknowledgment_method": acknowledgment_method,
+            "response_time_seconds": response_time_seconds,
+            "repeat_count": repeat_count,
+            "timestamp": now.isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error acknowledging reminder: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
 @router.post("/stop/{reminder_id}", response_model=dict, status_code=status.HTTP_200_OK)
 async def stop_reminder_with_response(
     reminder_id: str,
@@ -1464,6 +1583,102 @@ async def stop_reminder_with_response(
         raise
     except Exception as e:
         logger.error(f"Error stopping reminder: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post("/missed/{reminder_id}", response_model=dict, status_code=status.HTTP_200_OK)
+async def mark_reminder_missed(reminder_id: str, user_id: Optional[str] = None):
+    """
+    Mark a reminder as missed from the frontend local timeout cycle.
+
+    Called by the mobile/web frontend when the user ignores all repeats and the
+    frontend-owned alarm timeout cycle has exhausted MAX_REPEATS with no
+    acknowledgment.  This keeps the database status in sync when the backend's
+    own realtime engine has not yet marked the reminder as missed (e.g. because
+    the WebSocket connection was lost or the frontend cycle fired first).
+
+    - **reminder_id**: Reminder identifier
+    - **user_id**: Optional user ID for behavior logging
+    """
+    try:
+        db_service = get_db_service()
+
+        reminder_data = await db_service.get_reminder(reminder_id)
+        if not reminder_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
+
+        # Idempotent — if it's already missed/acknowledged, return success without
+        # overwriting the existing status.
+        current_status = reminder_data.get("status", "")
+        if current_status in ("missed", "acknowledged", "completed"):
+            return {
+                "status": "success",
+                "message": f"Reminder already in terminal state: {current_status}",
+                "reminder_id": reminder_id,
+                "current_status": current_status
+            }
+
+        missed_at = datetime.now()
+        effective_user_id = user_id or reminder_data.get("user_id", "unknown")
+
+        await db_service.update_reminder(
+            reminder_id,
+            {
+                "status": "missed",
+                "missed_at": missed_at.isoformat(),
+            }
+        )
+
+        # Log the ignored interaction for behavior / dementia tracking
+        interaction = ReminderInteraction(
+            reminder_id=reminder_id,
+            user_id=effective_user_id,
+            reminder_category=reminder_data.get("category"),
+            interaction_type=InteractionType.IGNORED,
+            interaction_time=missed_at,
+        )
+        behavior_tracker.log_interaction(interaction)
+
+        try:
+            _bsvc = _get_behavioral_service()
+            _log = UserBehavioralLog(
+                user_id=effective_user_id,
+                activity_type=ActivityType.MEDICATION
+                    if reminder_data.get("category") == "medication"
+                    else ActivityType.REMINDER_RESPONSE,
+                response_type=ResponseType.MISSED,
+                timestamp=missed_at,
+                completion_rate=0.0,
+                reminder_id=reminder_id,
+                reminder_category=reminder_data.get("category"),
+            )
+            import asyncio
+            asyncio.create_task(_bsvc.log_event(_log))
+        except Exception as _be:
+            logger.warning(f"Behavioral log skipped for missed reminder: {_be}")
+
+        logger.info(
+            f"⚠️ Reminder {reminder_id} marked as missed by frontend timeout cycle "
+            f"(user: {effective_user_id})"
+        )
+
+        return {
+            "status": "success",
+            "message": "Reminder marked as missed",
+            "reminder_id": reminder_id,
+            "missed_at": missed_at.isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error marking reminder as missed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
