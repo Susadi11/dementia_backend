@@ -2018,3 +2018,372 @@ async def health_check():
         "service": "reminder_system",
         "timestamp": datetime.now().isoformat()
     }
+
+
+# ========================================================================
+# TESTING & DEBUGGING ENDPOINTS - Test Adaptive Scheduling
+# ========================================================================
+
+@router.post("/test/simulate-interactions", response_model=dict)
+async def simulate_user_interactions(
+    user_id: str,
+    num_interactions: int = 10,
+    category: str = "medication",
+    base_delay_minutes: int = 0
+):
+    """
+    🧪 TEST ENDPOINT: Simulate user interactions to test adaptive scheduling.
+    
+    Creates fake reminder interactions with realistic response patterns.
+    Use this to build up behavior data for testing adaptive scheduling.
+    
+    **Parameters:**
+    - **user_id**: User identifier
+    - **num_interactions**: Number of interactions to simulate (default: 10)
+    - **category**: Reminder category (medication, meal, hygiene, etc.)
+    - **base_delay_minutes**: Base response delay in minutes (0 = on time, positive = late)
+    
+    **Example scenarios:**
+    - `base_delay_minutes=0`: User always on time
+    - `base_delay_minutes=30`: User consistently 30 minutes late
+    - `base_delay_minutes=-15`: User responds 15 minutes early
+    """
+    try:
+        import random
+        from src.features.reminder_system.reminder_models import Reminder, ReminderPriority
+        
+        interactions_created = []
+        
+        for i in range(num_interactions):
+            # Create reminder at different times
+            hour = random.choice([7, 8, 9, 12, 13, 18, 20, 21])
+            days_ago = random.randint(1, 30)
+            
+            scheduled_time = datetime.now() - timedelta(days=days_ago)
+            scheduled_time = scheduled_time.replace(hour=hour, minute=0, second=0, microsecond=0)
+            
+            # Simulate response with variation
+            response_delay = base_delay_minutes + random.randint(-10, 10)
+            response_time = scheduled_time + timedelta(minutes=max(0, response_delay))
+            
+            # Determine interaction type
+            if response_delay < -5:
+                interaction_type = InteractionType.CONFIRMED  # Responded early
+            elif response_delay < 30:
+                interaction_type = InteractionType.CONFIRMED  # On time
+            elif response_delay < 60:
+                interaction_type = InteractionType.DELAYED  # Snoozed
+            else:
+                interaction_type = InteractionType.IGNORED  # Too late/ignored
+            
+            # Occasionally add confusion
+            if random.random() < 0.1:  # 10% confusion rate
+                interaction_type = InteractionType.CONFUSED
+            
+            # Create interaction
+            interaction = ReminderInteraction(
+                reminder_id=f"test_reminder_{i}",
+                user_id=user_id,
+                reminder_category=category,
+                interaction_type=interaction_type,
+                interaction_time=response_time,
+                response_time_seconds=response_delay * 60,
+                user_response_text=f"Simulated response {i}",
+                cognitive_risk_score=random.uniform(0.1, 0.4) if interaction_type != InteractionType.CONFUSED else random.uniform(0.6, 0.9)
+            )
+            
+            # Log to behavior tracker
+            behavior_tracker.log_interaction(interaction)
+            
+            interactions_created.append({
+                "scheduled_time": scheduled_time.isoformat(),
+                "response_time": response_time.isoformat(),
+                "delay_minutes": response_delay,
+                "interaction_type": interaction_type.value,
+                "hour": hour
+            })
+        
+        # Get updated behavior pattern
+        pattern = behavior_tracker.get_user_behavior_pattern(
+            user_id=user_id,
+            category=category,
+            days=30
+        )
+        
+        logger.info(f"✅ Simulated {num_interactions} interactions for user {user_id}")
+        
+        return {
+            "status": "success",
+            "message": f"Simulated {num_interactions} interactions",
+            "user_id": user_id,
+            "interactions_created": interactions_created,
+            "learned_pattern": {
+                "optimal_hour": pattern.optimal_reminder_hour,
+                "worst_hours": pattern.worst_response_hours,
+                "recommended_time_adjustment": pattern.recommended_time_adjustment_minutes,
+                "frequency_multiplier": pattern.recommended_frequency_multiplier,
+                "confusion_trend": pattern.confusion_trend,
+                "total_interactions": pattern.total_reminders
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error simulating interactions: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post("/test/adaptive-schedule", response_model=dict)
+async def test_adaptive_scheduling(
+    user_id: str,
+    scheduled_hour: int = 8,
+    category: str = "medication",
+    priority: str = "medium"
+):
+    """
+    🧪 TEST ENDPOINT: Test adaptive scheduling recommendations.
+    
+    Creates a test reminder and gets adaptive scheduling recommendations
+    based on learned user behavior patterns.
+    
+    **Parameters:**
+    - **user_id**: User identifier (must have interaction history)
+    - **scheduled_hour**: Hour to schedule reminder (0-23)
+    - **category**: Reminder category
+    - **priority**: Reminder priority (low, medium, high, critical)
+    
+    **Returns:**
+    - Optimal scheduling time based on learned patterns
+    - Frequency recommendations
+    - Urgency level
+    - Detailed behavior statistics
+    """
+    try:
+        from src.features.reminder_system.reminder_models import Reminder, ReminderPriority
+        
+        # Create test reminder
+        scheduled_time = datetime.now().replace(hour=scheduled_hour, minute=0, second=0, microsecond=0)
+        if scheduled_time < datetime.now():
+            scheduled_time += timedelta(days=1)
+        
+        reminder = Reminder(
+            id=f"test_reminder_{datetime.now().timestamp()}",
+            user_id=user_id,
+            title=f"Test {category.capitalize()} Reminder",
+            description="Testing adaptive scheduling",
+            scheduled_time=scheduled_time,
+            priority=ReminderPriority(priority),
+            category=category,
+            status=ReminderStatus.ACTIVE
+        )
+        
+        # Get adaptive schedule recommendation
+        schedule_info = scheduler.get_optimal_reminder_schedule(reminder, days_analysis=30)
+        
+        # Get behavior pattern
+        pattern = behavior_tracker.get_user_behavior_pattern(
+            user_id=user_id,
+            category=category,
+            days=30
+        )
+        
+        # Test if should send now
+        should_send, reason = scheduler.should_send_reminder_now(reminder)
+        
+        return {
+            "status": "success",
+            "message": "Adaptive scheduling analysis complete",
+            "input": {
+                "user_id": user_id,
+                "requested_time": scheduled_time.isoformat(),
+                "requested_hour": scheduled_hour,
+                "category": category,
+                "priority": priority
+            },
+            "adaptive_recommendations": {
+                "optimal_time": schedule_info['optimal_time'].isoformat() if schedule_info.get('optimal_time') else None,
+                "time_adjustment_minutes": schedule_info.get('time_adjustment_minutes', 0),
+                "frequency_multiplier": schedule_info.get('frequency_multiplier', 1.0),
+                "urgency_level": schedule_info.get('urgency_level', 'normal'),
+                "escalation_needed": schedule_info.get('escalation_needed', False),
+                "worst_hours_to_avoid": schedule_info.get('worst_hours', [])
+            },
+            "behavior_stats": {
+                "total_reminders": pattern.total_reminders,
+                "confirmed_count": pattern.confirmed_count,
+                "ignored_count": pattern.ignored_count,
+                "delayed_count": pattern.delayed_count,
+                "confused_count": pattern.confused_count,
+                "confirmation_rate": pattern.confirmed_count / pattern.total_reminders if pattern.total_reminders > 0 else 0,
+                "confusion_rate": pattern.confused_count / pattern.total_reminders if pattern.total_reminders > 0 else 0,
+                "optimal_reminder_hour": pattern.optimal_reminder_hour,
+                "avg_cognitive_risk_score": pattern.avg_cognitive_risk_score,
+                "confusion_trend": pattern.confusion_trend
+            },
+            "should_send_now": {
+                "send": should_send,
+                "reason": reason
+            },
+            "pattern_details": schedule_info.get('pattern_stats', {})
+        }
+        
+    except Exception as e:
+        logger.error(f"Error testing adaptive scheduling: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/test/behavior-analysis/{user_id}", response_model=dict)
+async def get_detailed_behavior_analysis(
+    user_id: str,
+    days: int = 30,
+    category: Optional[str] = None
+):
+    """
+    🧪 TEST ENDPOINT: Get detailed behavior analysis for a user.
+    
+    Shows comprehensive analytics about user's reminder interaction patterns,
+    helping verify that adaptive scheduling is learning correctly.
+    
+    **Parameters:**
+    - **user_id**: User identifier
+    - **days**: Analysis period in days (default: 30)
+    - **category**: Optional category filter
+    
+    **Returns:**
+    - Complete behavior pattern analysis
+    - Time-of-day breakdown
+    - Trend analysis
+    - Recommendations
+    """
+    try:
+        pattern = behavior_tracker.get_user_behavior_pattern(
+            user_id=user_id,
+            category=category,
+            days=days
+        )
+        
+        # Calculate additional metrics
+        total = pattern.total_reminders
+        
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "analysis_period_days": days,
+            "category_filter": category,
+            "summary": {
+                "total_interactions": total,
+                "has_sufficient_data": total >= 10,
+                "data_quality": "excellent" if total >= 30 else "good" if total >= 10 else "limited"
+            },
+            "interaction_breakdown": {
+                "confirmed": pattern.confirmed_count,
+                "ignored": pattern.ignored_count,
+                "delayed": pattern.delayed_count,
+                "confused": pattern.confused_count,
+                "confirmation_rate": pattern.confirmed_count / total if total > 0 else 0,
+                "ignore_rate": pattern.ignored_count / total if total > 0 else 0,
+                "delay_rate": pattern.delayed_count / total if total > 0 else 0,
+                "confusion_rate": pattern.confused_count / total if total > 0 else 0
+            },
+            "timing_analysis": {
+                "optimal_reminder_hour": pattern.optimal_reminder_hour,
+                "worst_response_hours": pattern.worst_response_hours,
+                "avg_response_time_seconds": pattern.avg_response_time_seconds,
+                "avg_response_time_minutes": pattern.avg_response_time_seconds / 60 if pattern.avg_response_time_seconds else None
+            },
+            "cognitive_health": {
+                "avg_cognitive_risk_score": pattern.avg_cognitive_risk_score,
+                "confusion_trend": pattern.confusion_trend,
+                "escalation_recommended": pattern.escalation_recommended,
+                "trend_interpretation": {
+                    "improving": "User's confusion rate is decreasing over time ✅",
+                    "stable": "User's confusion rate is consistent 👍",
+                    "declining": "User's confusion rate is increasing - caregiver alert needed ⚠️",
+                    "insufficient_data": "Not enough data to determine trend"
+                }.get(pattern.confusion_trend, "Unknown")
+            },
+            "adaptive_recommendations": {
+                "frequency_multiplier": pattern.recommended_frequency_multiplier,
+                "frequency_interpretation": {
+                    1.5: "Increase reminder frequency by 50% (poor completion rate)",
+                    1.3: "Increase reminder frequency by 30% (some missed reminders)",
+                    1.0: "Maintain current reminder frequency",
+                    0.9: "Can reduce reminder frequency by 10% (excellent completion)"
+                }.get(pattern.recommended_frequency_multiplier, "Maintain current frequency"),
+                "time_adjustment_minutes": pattern.recommended_time_adjustment_minutes,
+                "time_adjustment_interpretation": 
+                    f"Shift reminders {abs(pattern.recommended_time_adjustment_minutes)} minutes {'earlier' if pattern.recommended_time_adjustment_minutes < 0 else 'later'}" 
+                    if pattern.recommended_time_adjustment_minutes else "No time adjustment needed"
+            },
+            "raw_pattern_data": pattern.dict()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting behavior analysis: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/test/scheduler-health", response_model=dict)
+async def get_scheduler_health():
+    """
+    🧪 TEST ENDPOINT: Check adaptive scheduler health and statistics.
+    
+    Returns overall statistics about the adaptive scheduling system,
+    including how many users have behavior data, system status, etc.
+    
+    **Returns:**
+    - System health status
+    - User statistics
+    - Scheduler configuration
+    """
+    try:
+        return {
+            "status": "healthy",
+            "message": "Adaptive scheduler is operational",
+            "scheduler_info": {
+                "type": "rule_based",
+                "ml_model_available": False,  # Will be True when ML model is added
+                "features": [
+                    "Time-of-day optimization",
+                    "Worst hour avoidance",
+                    "Response time tracking",
+                    "Confusion trend analysis",
+                    "Frequency adjustment",
+                    "Cognitive risk monitoring",
+                    "Caregiver escalation"
+                ]
+            },
+            "behavior_tracker": {
+                "active": True,
+                "cached_users": len(behavior_tracker.interaction_cache),
+                "tracking_metrics": [
+                    "Confirmation rate",
+                    "Ignore rate",
+                    "Delay rate",
+                    "Confusion rate",
+                    "Cognitive risk scores",
+                    "Response times"
+                ]
+            },
+            "testing_tips": {
+                "step_1": "POST /api/reminders/test/simulate-interactions - Create test data",
+                "step_2": "GET /api/reminders/test/behavior-analysis/{user_id} - View learned patterns",
+                "step_3": "POST /api/reminders/test/adaptive-schedule - Test scheduling recommendations",
+                "step_4": "Create real reminder and see adaptive time applied"
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting scheduler health: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
