@@ -4,6 +4,8 @@ FastAPI Application for Dementia Detection
 Combines conversational AI + gamified cognitive assessment for comprehensive dementia risk detection.
 """
 
+import utils.transport
+import utils.session
 from fastapi import FastAPI, HTTPException, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
