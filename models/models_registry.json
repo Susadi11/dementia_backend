@@ -1,6 +1,6 @@
 {
-  "last_updated": "2026-01-06T21:51:17.062037",
-  "total_models": 8,
+  "last_updated": "2026-03-06T00:00:00.000000",
+  "total_models": 9,
   "models": [
     {
       "id": "confusion_detection",
@@ -290,8 +290,16 @@
       "type": "LSTM Neural Network (Sequence Model)",
       "algorithm": "LSTM (Long Short-Term Memory)",
       "purpose": "Predicts cognitive decline trend by analyzing temporal patterns across game sessions",
-      "file_path": "src/models/game/lstm_model/model_v1.keras",
-      "file_size_mb": 0.01,
+      "model_source": "huggingface",
+      "huggingface_repo": "vlakvindu/Dementia_LSTM_Model",
+      "huggingface_url": "https://huggingface.co/vlakvindu/Dementia_LSTM_Model",
+      "files": {
+        "model": "lstm_model.keras",
+        "scaler": "lstm_scaler.pkl"
+      },
+      "local_cache_dir": "src/models/game/lstm_model/",
+      "file_size_mb": 0.42,
+      "owner": "vlakvindu",
       "training_date": "2026-01",
       "architecture": {
         "model_type": "Sequential LSTM",
@@ -338,6 +346,35 @@
         },
         "temporal_sensitivity": "Detects subtle changes over 10-session window",
         "use_case": "Early warning system for cognitive decline trajectory"
+      },
+      "category": "Game"
+    },
+    {
+      "id": "dementia_risk_classifier",
+      "name": "Dementia Risk Classification Model",
+      "type": "Multi-class Classifier",
+      "algorithm": "Logistic Regression",
+      "purpose": "Classifies dementia risk level (LOW/MEDIUM/HIGH) from cognitive game session features",
+      "model_source": "huggingface",
+      "huggingface_repo": "vlakvindu/Dementia_Risk_Clasification_model",
+      "huggingface_url": "https://huggingface.co/vlakvindu/Dementia_Risk_Clasification_model",
+      "files": {
+        "model": "risk_logreg.pkl",
+        "scaler": "risk_scaler.pkl",
+        "label_encoder": "risk_label_encoder.pkl"
+      },
+      "local_cache_dir": "src/models/game/risk_classifier/",
+      "owner": "vlakvindu",
+      "training_date": "2026-01",
+      "input_features": [
+        "mean_sac", "slope_sac", "mean_ies", "slope_ies",
+        "mean_accuracy", "mean_rt", "mean_variability",
+        "lstm_decline_score", "current_sac", "current_ies",
+        "slope_accuracy", "slope_rt", "std_sac", "std_ies"
+      ],
+      "metrics": {
+        "output_classes": ["HIGH", "LOW", "MEDIUM"],
+        "feature_count": 14
       },
       "category": "Game"
     }

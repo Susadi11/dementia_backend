@@ -1,6 +1,6 @@
 {
-  "last_updated": "2026-01-03T16:19:35.354067",
-  "total_models": 5,
+  "last_updated": "2026-03-06T00:00:00.000000",
+  "total_models": 7,
   "models": [
     {
       "id": "confusion_detection",
@@ -230,6 +230,41 @@
         }
       },
       "category": "Conversational AI"
+    },
+    {
+      "id": "dementia_risk_classifier",
+      "name": "Dementia Risk Classification Model",
+      "type": "Binary/Multi-class Classifier",
+      "algorithm": "Logistic Regression",
+      "purpose": "Classifies dementia risk level (LOW/MEDIUM/HIGH) from cognitive game features",
+      "model_source": "huggingface",
+      "huggingface_repo": "vlakvindu/Dementia_Risk_Clasification_model",
+      "huggingface_url": "https://huggingface.co/vlakvindu/Dementia_Risk_Clasification_model",
+      "files": {
+        "model": "risk_logreg.pkl",
+        "scaler": "risk_scaler.pkl",
+        "label_encoder": "risk_label_encoder.pkl"
+      },
+      "local_cache_dir": "src/models/game/risk_classifier/",
+      "category": "Game Cognitive Assessment",
+      "owner": "vlakvindu"
+    },
+    {
+      "id": "dementia_lstm_model",
+      "name": "Dementia LSTM Temporal Model",
+      "type": "Sequential Neural Network",
+      "algorithm": "LSTM (Long Short-Term Memory)",
+      "purpose": "Detects cognitive decline trends over time from sequential game session features",
+      "model_source": "huggingface",
+      "huggingface_repo": "vlakvindu/Dementia_LSTM_Model",
+      "huggingface_url": "https://huggingface.co/vlakvindu/Dementia_LSTM_Model",
+      "files": {
+        "model": "lstm_model.keras",
+        "scaler": "lstm_scaler.pkl"
+      },
+      "local_cache_dir": "src/models/game/lstm_model/",
+      "category": "Game Cognitive Assessment",
+      "owner": "vlakvindu"
     }
   ]
 }
