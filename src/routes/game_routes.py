@@ -53,8 +53,8 @@ async def submit_game_session(request: GameSessionRequest):
     try:
         # Convert trials to dict if provided
         trials = None
-        if request.trials:
-            trials = [t.dict() for t in request.trials]
+        if request.trials is not None and len(request.trials) > 0:
+            trials = [t.model_dump(by_alias=False) for t in request.trials]
             
             # AUTO-FIX: Convert milliseconds to seconds if RT values are too large
             # Expected RT: 0.5-3.0 seconds. If RT > 10, assume it's in milliseconds
@@ -67,8 +67,8 @@ async def submit_game_session(request: GameSessionRequest):
         
         # Convert summary to dict if provided
         summary = None
-        if request.summary:
-            summary = request.summary.dict()
+        if request.summary is not None:
+            summary = request.summary.model_dump()
             
             # AUTO-FIX: Convert milliseconds to seconds for summary too
             if summary.get('meanRtRaw', 0) > 10:
