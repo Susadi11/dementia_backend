@@ -120,8 +120,16 @@ def predict_lstm_decline(sessions: List[Dict]) -> float:
     if scaler is not None:
         original_shape = X.shape
         X_flat = X.reshape(-1, X.shape[-1])
-        X_scaled = scaler.transform(X_flat)
-        X = X_scaled.reshape(original_shape)
+        # Guard: only scale if feature count matches scaler expectation
+        expected_n = getattr(scaler, 'n_features_in_', X_flat.shape[-1])
+        if X_flat.shape[-1] != expected_n:
+            logger.warning(
+                f"LSTM scaler expects {expected_n} features but got {X_flat.shape[-1]} "
+                f"— skipping scaling"
+            )
+        else:
+            X_scaled = scaler.transform(X_flat)
+            X = X_scaled.reshape(original_shape)
     
     try:
         prediction = lstm_model.predict(X, verbose=0)
@@ -265,7 +273,29 @@ def predict_risk(sessions: List[Dict], current_features: Dict, lstm_score: float
         
         predicted_class = int(np.argmax(probs))
         risk_level = RISK_LABELS[predicted_class]  # Will be HIGH, LOW, or MEDIUM
-        risk_score_0_100 = round(float(probs[0]) * 100, 2)  # HIGH risk percentage
+
+        # ── Rule-based safety floor ──────────────────────────────────────────
+        # Catch blatant poor performance the trained model may underestimate.
+        acc   = current_features.get("accuracy", 1.0)
+        ies   = current_features.get("ies", 0.0)
+        var   = current_features.get("variability", 0.0)
+        # If accuracy < 40 % or IES > 5 or variability > 0.7 → minimum HIGH
+        if acc < 0.35 or ies > 8.0 or (acc < 0.40 and var > 0.60):
+            if risk_level in ("LOW", "MEDIUM"):
+                logger.warning(
+                    f"Rule override (severe): acc={acc:.2f}, ies={ies:.2f}, var={var:.2f} → {risk_level} → HIGH"
+                )
+                risk_level = "HIGH"
+        # If accuracy < 60 % or variability > 0.4 → minimum MEDIUM
+        elif acc < 0.60 or var > 0.40:
+            if risk_level == "LOW":
+                logger.warning(
+                    f"Rule override: acc={acc:.2f}, var={var:.2f} → LOW → MEDIUM"
+                )
+                risk_level = "MEDIUM"
+        # ─────────────────────────────────────────────────────────────────────
+        # Weighted risk score: MEDIUM contributes 50pts, HIGH contributes 100pts
+        risk_score_0_100 = round((float(probs[0]) * 100 + float(probs[2]) * 50), 2)
         
         logger.info(f"✅ FINAL PREDICTION: {risk_level} | HIGH={probs[0]:.3f}, LOW={probs[1]:.3f}, MED={probs[2]:.3f} | Score: {risk_score_0_100}/100")
         
