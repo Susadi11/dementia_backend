@@ -8,8 +8,8 @@ ANSWER_KEY = {
 
     # Object naming
     "name_objects": {
-        "watch": ["watch", "wristwatch"],
-        "pen": ["pen"]
+        "watch": ["watch", "wristwatch", "clock"],
+        "pen": ["pen", "pencil", "writing instrument"]
     },
 
     # Sentence repetition
