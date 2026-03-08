@@ -6,7 +6,6 @@ Combines conversational AI + gamified cognitive assessment for comprehensive dem
 
 from fastapi import FastAPI, HTTPException, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Any
 from datetime import datetime
@@ -75,14 +74,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Mount static files for model dashboard
-dashboard_path = Path(__file__).parent.parent.parent / "model_dashboard"
-if dashboard_path.exists():
-    app.mount("/dashboard", StaticFiles(directory=str(dashboard_path), html=True), name="dashboard")
-    logger.info(f"[INFO] Model dashboard mounted at /dashboard from {dashboard_path}")
-else:
-    logger.warning(f"[WARNING] Model dashboard directory not found: {dashboard_path}")
 
 # Include routers
 app.include_router(healthcheck.router)
@@ -308,9 +299,6 @@ async def root():
             "risk": [
                 "/risk/predict/{userId}",
                 "/risk/history/{userId}"
-            ],
-            "dashboard": [
-                "/dashboard - Model Dashboard UI"
             ]
         }
     }
