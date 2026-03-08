@@ -724,6 +724,23 @@ async def get_due_reminders_now(user_id: str, time_window_minutes: int = 5):
                     "trigger_alarm": True
                 })
         
+        # Mark urgent reminders as 'awaiting_acknowledgment' so subsequent
+        # polls do not keep returning (and re-triggering) the same alarm.
+        for ur in urgent_reminders:
+            ur_id = ur.get("id")
+            if ur_id:
+                try:
+                    await db_service.update_reminder(
+                        ur_id,
+                        {
+                            "status": "awaiting_acknowledgment",
+                            "delivered_at": now.isoformat(),
+                            "alarm_triggered_at": now.isoformat(),
+                        }
+                    )
+                except Exception as upd_err:
+                    logger.warning(f"Failed to mark reminder {ur_id} as awaiting_acknowledgment: {upd_err}")
+        
         return {
             "status": "success",
             "user_id": user_id,
@@ -1651,10 +1668,16 @@ async def acknowledge_reminder_alarm(
     4. Alarm actually stops playing
     
     If this endpoint is not called within timeout:
-    - Alarm will repeat after 30 seconds (first time)
-    - Then repeat every 3 minutes
-    - After 3 repeats with no acknowledgment → caregiver is notified
-    - Reminder status becomes "missed"
+    
+    **Non-Escalation Mode (escalation_enabled=false):**
+    - Alarm waits 3 minutes for acknowledgment (attempt 1)
+    - If no response: alarm repeats after 3 minutes (attempt 2)
+    - After 2 attempts (6 min total) → reminder marked as "missed" (no caregiver notification)
+    
+    **Escalation Mode (escalation_enabled=true):**
+    - Alarm repeats every 3 minutes until escalation_threshold_minutes (default: 10 min)
+    - After threshold exceeded → reminder marked as "missed" + caregiver notified
+    - Multiple attempts for critical/high-priority reminders
     
     - **reminder_id**: Reminder identifier  
     - **user_id**: User who is acknowledging

@@ -60,7 +60,7 @@ class Reminder(BaseModel):
     # Adaptive features
     adaptive_scheduling_enabled: bool = True
     escalation_enabled: bool = True
-    escalation_threshold_minutes: int = 30  # Time before caregiver notification
+    escalation_threshold_minutes: int = 10  # Time before marking as missed and notifying caregiver
     
     # Metadata
     created_at: datetime = Field(default_factory=datetime.now)

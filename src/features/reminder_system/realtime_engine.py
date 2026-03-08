@@ -53,9 +53,11 @@ class RealTimeReminderEngine:
         self.active_alarms: Dict[str, Dict[str, Any]] = {}
         
         # Alarm configuration
-        self.alarm_first_timeout_seconds = 30  # Wait 30 seconds for first response
-        self.alarm_repeat_timeout_seconds = 180  # Wait 3 minutes between repeats
-        self.alarm_max_repeats = 3  # Maximum number of repeats before escalation
+        self.alarm_timeout_seconds = 180  # Wait 3 minutes between each alarm attempt
+        self.default_escalation_threshold_minutes = 10  # Default escalation threshold for critical alarms
+        
+        # Non-escalation mode: 2 attempts total (0 + 3 min, then 3 + 3 min = 6 min total)
+        self.non_escalation_max_attempts = 2
         
         # Background task control
         self.is_running = False
@@ -123,6 +125,11 @@ class RealTimeReminderEngine:
         """Deliver a reminder in real-time via WebSocket."""
         user_id = reminder.user_id
         
+        # Skip if this alarm is already being tracked (avoid resetting repeat count)
+        if reminder.id in self.active_alarms:
+            logger.info(f"Reminder {reminder.id} already active — skipping duplicate delivery")
+            return False
+        
         if user_id not in self.user_connections:
             logger.warning(f"No active connection for user {user_id}, cannot deliver reminder")
             return False
@@ -139,7 +146,8 @@ class RealTimeReminderEngine:
             "scheduled_time": reminder.scheduled_time.isoformat(),
             "timestamp": now.isoformat(),
             "requires_acknowledgment": True,  # Frontend must get explicit confirmation
-            "timeout_seconds": self.alarm_first_timeout_seconds
+            "timeout_seconds": self.alarm_timeout_seconds,
+            "escalation_enabled": reminder.escalation_enabled
         }
         
         try:
@@ -157,7 +165,8 @@ class RealTimeReminderEngine:
                     "priority": reminder.priority.value,
                     "category": reminder.category,
                     "caregiver_ids": reminder.caregiver_ids,
-                    "escalation_enabled": reminder.escalation_enabled
+                    "escalation_enabled": reminder.escalation_enabled,
+                    "escalation_threshold_minutes": getattr(reminder, 'escalation_threshold_minutes', self.default_escalation_threshold_minutes)
                 }
                 
                 # Update reminder status to 'awaiting_acknowledgment'
@@ -170,7 +179,8 @@ class RealTimeReminderEngine:
                     }
                 )
                 
-                logger.info(f"Alarm tracking started for reminder {reminder.id}, timeout in {self.alarm_first_timeout_seconds}s")
+                mode = "escalation" if reminder.escalation_enabled else "non-escalation"
+                logger.info(f"Alarm tracking started for reminder {reminder.id} ({mode} mode), timeout in {self.alarm_timeout_seconds}s")
             return success
         except Exception as e:
             logger.error(f"Failed to deliver reminder {reminder.id}: {e}")
@@ -245,6 +255,10 @@ class RealTimeReminderEngine:
                 due_reminders = await self.db_service.get_due_reminders(5)
                 
                 for reminder_data in due_reminders:
+                    rid = reminder_data.get("id", "")
+                    # Skip reminders already being tracked to avoid resetting repeat cycle
+                    if rid in self.active_alarms:
+                        continue
                     # Convert to Reminder object and deliver
                     reminder = self._dict_to_reminder(reminder_data)
                     await self.deliver_reminder(reminder)
@@ -259,10 +273,21 @@ class RealTimeReminderEngine:
         """
         Background task that monitors unacknowledged alarms.
         
-        - Checks every 10 seconds for alarms that need attention
-        - Repeats alarms if not acknowledged within timeout
-        - Escalates to caregivers after max repeats
-        - Marks as 'missed' if ignored completely
+        Two modes:
+        
+        1. escalation_enabled = False (Non-escalation mode):
+           - First alarm at T=0
+           - Wait 3 minutes (no response)
+           - Repeat alarm at T=3 min
+           - Wait 3 minutes (no response)
+           - Mark as MISSED at T=6 min
+           Total: 6 min, 2 attempts
+        
+        2. escalation_enabled = True (Escalation mode):
+           - First alarm at T=0
+           - Repeat every 3 minutes until escalation_threshold_minutes reached
+           - After threshold (default 10 min), mark as MISSED + notify caregiver
+           Total: Configurable (default 10 min), multiple attempts
         """
         logger.info("Started alarm timeout monitor task")
         
@@ -277,28 +302,44 @@ class RealTimeReminderEngine:
                     repeat_count = alarm_data["repeat_count"]
                     user_id = alarm_data["user_id"]
                     reminder = alarm_data["reminder"]
+                    escalation_enabled = alarm_data["escalation_enabled"]
+                    escalation_threshold_minutes = alarm_data.get("escalation_threshold_minutes", self.default_escalation_threshold_minutes)
                     
-                    # Calculate time since last action
-                    if repeat_count == 0:
-                        # First alarm - use shorter timeout
-                        time_since_trigger = (now - triggered_at).total_seconds()
-                        timeout = self.alarm_first_timeout_seconds
-                    else:
-                        # Subsequent repeats - use longer timeout (3 minutes)
-                        time_since_trigger = (now - last_repeat_at).total_seconds()
-                        timeout = self.alarm_repeat_timeout_seconds
+                    # Calculate time since last alarm
+                    time_since_last_alarm = (now - last_repeat_at).total_seconds()
+                    time_since_first_trigger = (now - triggered_at).total_seconds()
                     
-                    # Check if timeout exceeded
-                    if time_since_trigger >= timeout:
-                        if repeat_count < self.alarm_max_repeats:
-                            # REPEAT THE ALARM
-                            await self._repeat_alarm(reminder_id, alarm_data)
+                    # Check if 3-minute timeout has passed since last alarm
+                    if time_since_last_alarm >= self.alarm_timeout_seconds:
+                        
+                        if not escalation_enabled:
+                            # NON-ESCALATION MODE: Max 2 attempts (at 0 min and 3 min)
+                            if repeat_count < self.non_escalation_max_attempts - 1:
+                                # Repeat the alarm (second attempt)
+                                await self._repeat_alarm(reminder_id, alarm_data)
+                            else:
+                                # Max attempts reached - mark as MISSED (no caregiver notification)
+                                logger.warning(f"Non-escalation alarm {reminder_id}: {self.non_escalation_max_attempts} attempts completed, marking as MISSED")
+                                await self._mark_as_missed(reminder_id, alarm_data, notify_caregiver=False)
+                                alarms_to_remove.append(reminder_id)
+                        
                         else:
-                            # MAX REPEATS REACHED - ESCALATE
-                            await self._escalate_missed_alarm(reminder_id, alarm_data)
-                            alarms_to_remove.append(reminder_id)
+                            # ESCALATION MODE: Keep repeating until threshold reached
+                            threshold_seconds = escalation_threshold_minutes * 60
+                            
+                            if time_since_first_trigger < threshold_seconds:
+                                # Still within escalation window - repeat alarm
+                                await self._repeat_alarm(reminder_id, alarm_data)
+                            else:
+                                # Threshold exceeded - mark as MISSED and notify caregiver
+                                logger.error(
+                                    f"Escalation alarm {reminder_id}: threshold of {escalation_threshold_minutes} min exceeded, "
+                                    f"marking as MISSED and notifying caregiver"
+                                )
+                                await self._mark_as_missed(reminder_id, alarm_data, notify_caregiver=True)
+                                alarms_to_remove.append(reminder_id)
                 
-                # Clean up escalated alarms
+                # Clean up completed alarms
                 for reminder_id in alarms_to_remove:
                     del self.active_alarms[reminder_id]
                 
@@ -411,15 +452,25 @@ class RealTimeReminderEngine:
         user_id = alarm_data["user_id"]
         reminder = alarm_data["reminder"]
         repeat_count = alarm_data["repeat_count"] + 1
+        escalation_enabled = alarm_data["escalation_enabled"]
+        
+        now = datetime.now()
+        time_since_first = (now - alarm_data["triggered_at"]).total_seconds() / 60  # in minutes
         
         logger.warning(
-            f"⏰ REPEATING ALARM {reminder_id} (repeat #{repeat_count}) - "
-            f"User {user_id} has not acknowledged"
+            f"⏰ REPEATING ALARM {reminder_id} (attempt #{repeat_count + 1}) - "
+            f"User {user_id} has not acknowledged after {time_since_first:.1f} min"
         )
         
         # Update repeat tracking
         alarm_data["repeat_count"] = repeat_count
-        alarm_data["last_repeat_at"] = datetime.now()
+        alarm_data["last_repeat_at"] = now
+        
+        # Determine urgency based on mode and attempt count
+        if escalation_enabled:
+            urgency = "critical" if repeat_count >= 2 else "high"
+        else:
+            urgency = "high"  # Non-escalation second attempt is always high
         
         # Send repeat alarm to user
         repeat_message = {
@@ -430,10 +481,12 @@ class RealTimeReminderEngine:
             "priority": reminder.priority.value,
             "category": reminder.category,
             "repeat_count": repeat_count,
-            "message": f"⚠️ REMINDER (Repeat #{repeat_count}): {reminder.title}",
-            "urgency": "high" if repeat_count >= 2 else "medium",
-            "timestamp": datetime.now().isoformat(),
-            "requires_acknowledgment": True
+            "total_attempts": repeat_count + 1,
+            "message": f"⚠️ REMINDER (Attempt #{repeat_count + 1}): {reminder.title}",
+            "urgency": urgency,
+            "timestamp": now.isoformat(),
+            "requires_acknowledgment": True,
+            "escalation_enabled": escalation_enabled
         }
         
         await self._send_user_message(user_id, repeat_message)
@@ -443,31 +496,35 @@ class RealTimeReminderEngine:
             reminder_id,
             {
                 "alarm_repeat_count": repeat_count,
-                "last_repeat_at": datetime.now().isoformat()
+                "last_repeat_at": now.isoformat()
             }
         )
         
-        logger.info(f"Alarm {reminder_id} repeated (#{repeat_count}), next check in {self.alarm_repeat_timeout_seconds}s")
+        logger.info(f"Alarm {reminder_id} repeated (attempt #{repeat_count + 1}), next check in {self.alarm_timeout_seconds}s")
     
-    async def _escalate_missed_alarm(self, reminder_id: str, alarm_data: Dict[str, Any]):
+    async def _mark_as_missed(self, reminder_id: str, alarm_data: Dict[str, Any], notify_caregiver: bool = False):
         """
-        Escalate a missed alarm to caregivers.
+        Mark a reminder as missed.
         
-        Called when user has ignored alarm for max repeats.
-        - Notifies caregivers (especially for high priority)
-        - Marks reminder as 'missed'
-        - Logs as ignored interaction
+        Args:
+            reminder_id: The reminder to mark as missed
+            alarm_data: Alarm tracking data
+            notify_caregiver: Whether to notify caregivers (True for escalation mode)
         """
         user_id = alarm_data["user_id"]
         reminder = alarm_data["reminder"]
         repeat_count = alarm_data["repeat_count"]
         priority = alarm_data["priority"]
         caregiver_ids = alarm_data["caregiver_ids"]
-        escalation_enabled = alarm_data.get("escalation_enabled", True)
+        escalation_enabled = alarm_data["escalation_enabled"]
+        
+        now = datetime.now()
+        total_time = (now - alarm_data["triggered_at"]).total_seconds() / 60  # in minutes
         
         logger.error(
             f"🚨 ALARM MISSED: Reminder {reminder_id} ignored by user {user_id} "
-            f"after {repeat_count} repeats. Priority: {priority}"
+            f"after {repeat_count + 1} attempts over {total_time:.1f} minutes. "
+            f"Mode: {'escalation' if escalation_enabled else 'non-escalation'}, Priority: {priority}"
         )
         
         # Mark as MISSED in database
@@ -475,9 +532,11 @@ class RealTimeReminderEngine:
             reminder_id,
             {
                 "status": "missed",
-                "missed_at": datetime.now().isoformat(),
+                "missed_at": now.isoformat(),
                 "alarm_repeat_count": repeat_count,
-                "escalated_to_caregiver": escalation_enabled
+                "total_attempts": repeat_count + 1,
+                "total_duration_minutes": total_time,
+                "escalated_to_caregiver": notify_caregiver
             }
         )
         
@@ -488,29 +547,36 @@ class RealTimeReminderEngine:
             user_id=user_id,
             reminder_category=alarm_data.get("category"),
             interaction_type=InteractionType.IGNORED,
-            interaction_time=datetime.now(),
+            interaction_time=now,
             user_response_text=None,
             response_time_seconds=None  # No response
         )
         self.behavior_tracker.log_interaction(interaction)
         
-        # ESCALATE TO CAREGIVERS (if enabled and priority is high/critical)
-        if escalation_enabled and priority in ["high", "critical"] and caregiver_ids:
-            logger.info(f"Escalating to {len(caregiver_ids)} caregiver(s) for missed {priority} priority reminder")
+        # NOTIFY CAREGIVERS if requested (escalation mode only)
+        if notify_caregiver and caregiver_ids:
+            logger.info(f"Notifying {len(caregiver_ids)} caregiver(s) for missed {priority} priority reminder")
             
             # Send alerts to all caregivers
             for caregiver_id in caregiver_ids:
-                # Use caregiver notifier
                 await self._notify_caregiver_of_missed_alarm(
                     caregiver_id, user_id, reminder, repeat_count
                 )
+            
+            # Notify user that caregiver was contacted
+            user_message = f"⚠️ You missed: {reminder.title}. Caregiver has been notified."
+        else:
+            # No caregiver notification
+            user_message = f"You missed: {reminder.title}"
         
         # Notify user that alarm was missed
         await self._send_user_message(user_id, {
             "type": "alarm_missed",
             "reminder_id": reminder_id,
-            "message": f"⚠️ You missed: {reminder.title}. Caregiver has been notified.",
-            "timestamp": datetime.now().isoformat()
+            "message": user_message,
+            "total_attempts": repeat_count + 1,
+            "caregiver_notified": notify_caregiver,
+            "timestamp": now.isoformat()
         })
     
     async def _notify_caregiver_of_missed_alarm(

@@ -677,6 +677,138 @@ async def get_patients_details(
 
 # ===== CAREGIVER DASHBOARD ENDPOINTS =====
 
+@router.get("/dashboard/reminders/all", response_model=dict)
+async def get_all_patients_reminders(
+    days: int = Query(7, description="Number of days to retrieve (default: 7)"),
+    current_caregiver = Depends(get_current_caregiver)
+):
+    """
+    Get all reminders across ALL linked patients, grouped by status.
+
+    Returns active, completed, and missed reminders for every patient
+    linked to the authenticated caregiver — designed for the caregiver
+    dashboard overview.
+
+    Requires: Bearer token in Authorization header
+    """
+    try:
+        service = get_caregiver_service(Database.db)
+        caregiver_id = current_caregiver["caregiver_id"]
+
+        # Get all linked patient IDs
+        patients = await service.get_patients_details(caregiver_id)
+        patient_ids = [p.get("user_id") for p in patients if p.get("user_id")]
+
+        if not patient_ids:
+            return {
+                "success": True,
+                "total_patients": 0,
+                "summary": {"total": 0, "active": 0, "completed": 0, "missed": 0},
+                "reminders": {"active": [], "completed": [], "missed": []},
+                "per_patient": {}
+            }
+
+        reminder_db = ReminderDatabaseService()
+        cutoff_date = datetime.now() - timedelta(days=days)
+
+        all_active = []
+        all_completed = []
+        all_missed = []
+        per_patient = {}
+
+        for pid in patient_ids:
+            reminders = await reminder_db.get_user_reminders(pid, limit=1000)
+
+            # Filter to requested period
+            period = [
+                r for r in reminders
+                if _parse_datetime(r.get("scheduled_time")) >= cutoff_date
+            ]
+
+            # Find patient display name
+            patient_info = next((p for p in patients if p.get("user_id") == pid), {})
+            patient_name = (
+                patient_info.get("full_name")
+                or f"{patient_info.get('first_name', '')} {patient_info.get('last_name', '')}".strip()
+                or pid
+            )
+
+            active   = []
+            completed = []
+            missed   = []
+
+            for r in period:
+                item = {
+                    "id": r.get("id", "unknown"),
+                    "title": r.get("title", "Untitled Reminder"),
+                    "description": r.get("description"),
+                    "scheduled_time": _parse_datetime(r.get("scheduled_time")).strftime("%b %d at %I:%M %p"),
+                    "scheduled_datetime": r.get("scheduled_time"),
+                    "category": r.get("category", "general"),
+                    "priority": r.get("priority", "medium"),
+                    "status": r.get("status", "active"),
+                    "completed_at": r.get("completed_at"),
+                    "tag_color": _get_category_color(r.get("category", "general")),
+                    "patient_id": pid,
+                    "patient_name": patient_name
+                }
+
+                status = r.get("status", "active")
+                if status == "completed":
+                    completed.append(item)
+                elif status == "missed":
+                    missed.append(item)
+                else:
+                    active.append(item)
+
+            all_active.extend(active)
+            all_completed.extend(completed)
+            all_missed.extend(missed)
+
+            per_patient[pid] = {
+                "patient_name": patient_name,
+                "active": len(active),
+                "completed": len(completed),
+                "missed": len(missed),
+                "total": len(period)
+            }
+
+        # Sort each group by scheduled time (newest first)
+        for group in (all_active, all_completed, all_missed):
+            group.sort(
+                key=lambda x: _parse_datetime(x.get("scheduled_datetime")),
+                reverse=True
+            )
+
+        total = len(all_active) + len(all_completed) + len(all_missed)
+        compliance = round((len(all_completed) / total * 100), 1) if total > 0 else 0.0
+
+        return {
+            "success": True,
+            "period_days": days,
+            "total_patients": len(patient_ids),
+            "summary": {
+                "total": total,
+                "active": len(all_active),
+                "completed": len(all_completed),
+                "missed": len(all_missed),
+                "compliance_rate": compliance
+            },
+            "reminders": {
+                "active": all_active,
+                "completed": all_completed,
+                "missed": all_missed
+            },
+            "per_patient": per_patient
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get all patients reminders error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve reminders for linked patients")
+
+
 @router.get("/dashboard/{patient_id}", response_model=dict)
 async def get_patient_dashboard(
     patient_id: str,
