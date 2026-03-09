@@ -156,7 +156,7 @@ class WeeklyRiskCalculator:
             List of session documents
         """
         try:
-            collection = db["chat_risk_predictions"]
+            collection = db["chat_detection_sessions"]
 
             query = {
                 "user_id": user_id,
