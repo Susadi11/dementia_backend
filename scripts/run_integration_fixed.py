@@ -51,7 +51,7 @@ def check_pitt_data():
 
 def run_command_safe(cmd: str, description: str):
     """Run a command with better error handling."""
-    logger.info(f"🔄 {description}")
+    logger.info(f" {description}")
     
     try:
         result = subprocess.run(

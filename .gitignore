@@ -26,12 +26,12 @@ MANIFEST
 # Virtual environments
 venv/
 venv_*/
+venv311/
 ENV/
 env/
 .venv
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -39,8 +39,6 @@ env/
 .DS_Store
 
 # Environment variables
-.env
-.env.local
 .env.*.local
 
 # Logs
@@ -69,3 +67,5 @@ Thumbs.db
 
 
 dataset
+config.bat
+node_modules

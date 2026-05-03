@@ -17,6 +17,10 @@ import uvicorn
 from pathlib import Path
 import sys
 import io
+import os
+
+# Suppress HuggingFace tokenizers fork warnings (safe to disable for inference-only server)
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 # Fix Unicode output on Windows
 if sys.platform == 'win32':

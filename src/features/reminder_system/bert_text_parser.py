@@ -193,9 +193,11 @@ class BERTReminderParser:
         # Try dateparser first (best option - handles natural language)
         if DATEPARSER_AVAILABLE:
             try:
+                # Normalize spoken numbers before dateparser
+                normalized_text = self._normalize_spoken_numbers(text)
                 # dateparser can understand: "tomorrow at 6pm", "next monday 2pm", etc.
                 parsed_dt = dateparser.parse(
-                    text,
+                    normalized_text,
                     settings={
                         'PREFER_DATES_FROM': 'future',
                         'RETURN_AS_TIMEZONE_AWARE': False,
@@ -212,11 +214,79 @@ class BERTReminderParser:
         # Fallback to manual parsing
         return self._manual_datetime_extraction(text_lower, now)
     
+    @staticmethod
+    def _normalize_spoken_numbers(text: str) -> str:
+        """
+        Convert spoken number words to digits so regexes can match.
+        Handles Whisper transcriptions like 'six PM' -> '6 PM'.
+        """
+        word_to_num = {
+            'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4',
+            'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9',
+            'ten': '10', 'eleven': '11', 'twelve': '12', 'thirteen': '13',
+            'fourteen': '14', 'fifteen': '15', 'sixteen': '16', 'seventeen': '17',
+            'eighteen': '18', 'nineteen': '19', 'twenty': '20',
+            'twenty-one': '21', 'twenty one': '21', 'twenty-two': '22', 'twenty two': '22',
+            'twenty-three': '23', 'twenty three': '23', 'twenty-four': '24', 'twenty four': '24',
+            'thirty': '30', 'forty': '40', 'forty-five': '45', 'forty five': '45',
+            'fifty': '50',
+        }
+
+        result = text
+
+        # Handle "half past <number>" -> "<number>:30"
+        result = re.sub(
+            r'half\s+past\s+(\w+(?:-\w+)?)',
+            lambda m: f"{word_to_num.get(m.group(1), m.group(1))}:30",
+            result
+        )
+        # Handle "quarter past <number>" -> "<number>:15"
+        result = re.sub(
+            r'quarter\s+past\s+(\w+(?:-\w+)?)',
+            lambda m: f"{word_to_num.get(m.group(1), m.group(1))}:15",
+            result
+        )
+        # Handle "quarter to <number>" -> "<number-1>:45"
+        def _quarter_to(m):
+            w = m.group(1)
+            h = int(word_to_num.get(w, w)) if not w.isdigit() else int(w)
+            return f"{h - 1}:45" if h > 1 else "12:45"
+        result = re.sub(r'quarter\s+to\s+(\w+(?:-\w+)?)', _quarter_to, result)
+
+        # Handle compound spoken minutes: "three thirty" -> "3:30"
+        hour_words = [
+            'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+            'nine', 'ten', 'eleven', 'twelve'
+        ]
+        minute_words = [
+            'ten', 'fifteen', 'twenty', 'twenty-one', 'twenty one',
+            'twenty-two', 'twenty two', 'twenty-three', 'twenty three',
+            'twenty-four', 'twenty four', 'twenty-five', 'twenty five',
+            'thirty', 'thirty-five', 'thirty five', 'forty', 'forty-five',
+            'forty five', 'fifty', 'fifty-five', 'fifty five',
+        ]
+        for hw in hour_words:
+            for mw in sorted(minute_words, key=len, reverse=True):
+                pattern = re.compile(r'\b' + re.escape(hw) + r'\s+' + re.escape(mw) + r'\b')
+                if pattern.search(result):
+                    h_digit = word_to_num[hw]
+                    m_digit = word_to_num.get(mw, mw)
+                    result = pattern.sub(f"{h_digit}:{m_digit}", result)
+
+        # Replace remaining standalone number words with digits
+        for word, digit in sorted(word_to_num.items(), key=lambda x: len(x[0]), reverse=True):
+            result = re.sub(r'\b' + re.escape(word) + r'\b', digit, result)
+
+        return result
+
     def _manual_datetime_extraction(self, text_lower: str, now: datetime) -> datetime:
         """
         Manual date/time extraction (fallback).
         This is the enhanced version from the previous fix.
         """
+        # Normalize spoken numbers before extraction
+        text_lower = self._normalize_spoken_numbers(text_lower)
+
         # Extract DATE
         days_offset = 0
         

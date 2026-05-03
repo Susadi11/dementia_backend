@@ -51,7 +51,7 @@ class PittBasedReminderAnalyzer:
                 # Log model info
                 model_info = self.enhanced_models.get_model_info()
                 logger.info(f"[INFO] Models trained on {model_info['total_samples']} samples")
-                logger.info(f"🏆 Models available: {', '.join(model_info['models_loaded'])}")
+                logger.info(f"Models available: {', '.join(model_info['models_loaded'])}")
                 
             except Exception as e:
                 logger.error(f"[ERROR] Failed to load enhanced models: {e}")
@@ -210,7 +210,7 @@ class PittBasedReminderAnalyzer:
             )
             
             return {
-                'cognitive_risk_score': float(cognitive_risk),
+                'cognitive_risk_score': float(max(0.0, min(1.0, cognitive_risk))),
                 'confusion_detected': confusion_detected,
                 'memory_issue_detected': memory_issue,
                 'uncertainty_detected': uncertainty,

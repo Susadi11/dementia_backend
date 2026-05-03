@@ -396,7 +396,7 @@ async def get_user_sessions(
 
         if end_date:
             try:
-                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
             except ValueError:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,

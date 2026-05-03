@@ -194,7 +194,7 @@ class ReminderDatabaseService:
                     "$gte": window_start,
                     "$lte": window_end
                 },
-                "status": "active"
+                "status": {"$in": ["active", "snoozed"]}
             }
 
             if user_id:
@@ -217,6 +217,17 @@ class ReminderDatabaseService:
             logger.error(f"Error getting due reminders: {e}")
             return []
 
+    async def get_active_user_ids(self) -> List[str]:
+        """Get distinct user IDs that have at least one active reminder."""
+        try:
+            user_ids = await self.reminders_collection.distinct(
+                "user_id", {"status": "active"}
+            )
+            return user_ids
+        except Exception as e:
+            logger.error(f"Error getting active user IDs: {e}")
+            return []
+
     async def delete_reminder(self, reminder_id: str) -> bool:
         """Delete a reminder."""
         try:
@@ -234,37 +245,80 @@ class ReminderDatabaseService:
             return False
 
     # ===== INTERACTION TRACKING =====
-    
-    async def log_reminder_interaction(self, interaction: ReminderInteraction) -> Dict[str, Any]:
-        """Log a reminder interaction."""
-        interaction_data = {
-            "id": f"interaction_{datetime.now().timestamp()}",
-            "reminder_id": interaction.reminder_id,
-            "user_id": interaction.user_id,
-            "response_text": interaction.response_text,
-            "response_time_seconds": interaction.response_time_seconds,
-            "interaction_type": interaction.interaction_type.value,
-            "cognitive_risk_score": interaction.cognitive_risk_score,
-            "confusion_detected": interaction.confusion_detected,
-            "memory_issue_detected": interaction.memory_issue_detected,
-            "recommended_action": interaction.recommended_action,
-            "caregiver_alert_needed": interaction.caregiver_alert_needed,
-            "timestamp": interaction.timestamp.isoformat()
+
+    def save_reminder_interaction(self, interaction_data: Dict[str, Any]) -> None:
+        """Persist a reminder interaction to MongoDB (fire-and-forget async write)."""
+        import asyncio
+        doc = {
+            "_id": interaction_data.get("id") or f"int_{datetime.now().timestamp()}",
+            "reminder_id": interaction_data.get("reminder_id"),
+            "user_id": interaction_data.get("user_id"),
+            "reminder_category": interaction_data.get("reminder_category"),
+            "interaction_type": interaction_data.get("interaction_type"),
+            "interaction_time": interaction_data.get("interaction_time", datetime.now()),
+            "user_response_text": interaction_data.get("user_response_text"),
+            "cognitive_risk_score": interaction_data.get("cognitive_risk_score"),
+            "confusion_detected": interaction_data.get("confusion_detected", False),
+            "memory_issue_detected": interaction_data.get("memory_issue_detected", False),
+            "response_time_seconds": interaction_data.get("response_time_seconds"),
+            "recommended_action": interaction_data.get("recommended_action"),
+            "caregiver_alert_triggered": interaction_data.get("caregiver_alert_triggered", False),
         }
-        
-        logger.info(f"Logging interaction for reminder {interaction.reminder_id}")
-        return interaction_data
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(self._insert_interaction(doc))
+        except RuntimeError:
+            logger.warning("No running event loop — interaction not persisted to DB")
+
+    async def _insert_interaction(self, doc: Dict[str, Any]) -> None:
+        """Actual async insert into reminder_interactions collection."""
+        try:
+            await self.interactions_collection.insert_one(doc)
+            logger.info(f"Saved interaction to DB: user={doc.get('user_id')}, type={doc.get('interaction_type')}")
+        except Exception as e:
+            logger.error(f"Failed to insert interaction: {e}")
+
+    def get_reminder_interactions(self, **_kwargs) -> List:
+        """Sync stub so BehaviorTracker._get_interactions() doesn't raise AttributeError.
+        Real data comes from the in-memory cache warmed up by warm_cache_from_db() at startup."""
+        return []
+
+    async def get_reminder_interactions_async(
+        self,
+        user_id: str,
+        start_date: datetime,
+        reminder_id: Optional[str] = None,
+        category: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Async query: fetch interactions from MongoDB for cache warm-up."""
+        try:
+            query: Dict[str, Any] = {
+                "user_id": user_id,
+                "interaction_time": {"$gte": start_date},
+            }
+            if reminder_id:
+                query["reminder_id"] = reminder_id
+            if category:
+                query["reminder_category"] = category
+
+            cursor = self.interactions_collection.find(query).sort("interaction_time", 1)
+            docs = []
+            async for doc in cursor:
+                doc["id"] = str(doc.pop("_id"))
+                docs.append(doc)
+            return docs
+        except Exception as e:
+            logger.error(f"Error fetching interactions for user {user_id}: {e}")
+            return []
 
     async def get_user_interactions(
-        self, 
-        user_id: str, 
+        self,
+        user_id: str,
         days_back: int = 30
     ) -> List[Dict[str, Any]]:
         """Get user interactions within specified time period."""
         since_date = datetime.now() - timedelta(days=days_back)
-        logger.info(f"Getting interactions for user {user_id} since {since_date}")
-        # Mock implementation - replace with actual database query
-        return []
+        return await self.get_reminder_interactions_async(user_id=user_id, start_date=since_date)
 
     # ===== BEHAVIOR ANALYTICS =====
     

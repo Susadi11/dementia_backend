@@ -20,22 +20,17 @@ logger = logging.getLogger(__name__)
 # Create router for WebSocket endpoints
 ws_router = APIRouter(prefix="/ws", tags=["websocket"])
 
-# Global real-time engine instance
-realtime_engine = RealTimeReminderEngine()
+# Engine is set by app.py startup event AFTER MongoDB is connected.
+# Do NOT instantiate or start the engine here — doing so fires background
+# tasks before the database is ready, which causes "DB not connected" errors.
+realtime_engine: Optional[RealTimeReminderEngine] = None
 
 
-@ws_router.on_event("startup")
-async def startup_realtime_engine():
-    """Start the real-time engine when the application starts."""
-    await realtime_engine.start_engine()
-    logger.info("Real-time reminder engine started")
-
-
-@ws_router.on_event("shutdown")
-async def shutdown_realtime_engine():
-    """Stop the real-time engine when the application shuts down."""
-    await realtime_engine.stop_engine()
-    logger.info("Real-time reminder engine stopped")
+def set_engine(engine: RealTimeReminderEngine) -> None:
+    """Called by app.py startup event once MongoDB is connected and engine is running."""
+    global realtime_engine
+    realtime_engine = engine
+    logger.info("Real-time reminder engine registered with WebSocket routes")
 
 
 @ws_router.websocket("/user/{user_id}")

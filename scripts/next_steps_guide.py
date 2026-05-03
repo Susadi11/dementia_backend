@@ -35,7 +35,7 @@ def main():
         else:
             print(f"   ❌ {model_file} - MISSING!")
     
-    print("\n2. 🔄 UPDATE YOUR API TO USE ENHANCED MODELS")
+    print("\n2. UPDATE YOUR API TO USE ENHANCED MODELS")
     print("   Action required: Update your reminder system to use new models")
     print("   Location: src/routes/reminder_routes.py")
     print("   Status: Needs manual update")

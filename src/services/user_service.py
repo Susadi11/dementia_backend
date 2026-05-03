@@ -214,15 +214,24 @@ class UserService:
         user = await collection.find_one({"email": email.lower().strip()})
 
         if user:
-            # Existing user - update last login
+            # Existing user - update last login and refresh Google photo
             if user.get("account_status") != "active":
                 raise ValueError("Account is not active. Please contact support.")
 
+            update_fields = {"last_login": datetime.utcnow()}
+            # Always refresh Google profile photo URL on login
+            if picture and not user.get("profile_photo_binary"):
+                update_fields["profile_photo"] = picture
+
             await collection.update_one(
                 {"_id": user["_id"]},
-                {"$set": {"last_login": datetime.utcnow()}}
+                {"$set": update_fields}
             )
+            if picture and not user.get("profile_photo_binary"):
+                user["profile_photo"] = picture
+
             user.pop("password", None)
+            user.pop("profile_photo_binary", None)
             user["_id"] = str(user["_id"])
         else:
             # New user - create account

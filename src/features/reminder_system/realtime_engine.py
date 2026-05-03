@@ -251,23 +251,51 @@ class RealTimeReminderEngine:
         """Background task that checks for due reminders."""
         while self.is_running:
             try:
-                # Get reminders due in the next 5 minutes
                 due_reminders = await self.db_service.get_due_reminders(5)
-                
+
                 for reminder_data in due_reminders:
                     rid = reminder_data.get("id", "")
-                    # Skip reminders already being tracked to avoid resetting repeat cycle
                     if rid in self.active_alarms:
                         continue
-                    # Convert to Reminder object and deliver
+
                     reminder = self._dict_to_reminder(reminder_data)
+
+                    # For adaptive, non-critical reminders: skip worst response hours
+                    if (
+                        reminder.adaptive_scheduling_enabled
+                        and reminder.priority.value != "critical"
+                    ):
+                        pattern = self.behavior_tracker.get_user_behavior_pattern(
+                            user_id=reminder.user_id,
+                            category=reminder.category,
+                            days=7
+                        )
+                        if pattern.worst_response_hours and reminder.scheduled_time.hour in pattern.worst_response_hours:
+                            # Advance by 1 hour at a time until clear of worst hours (cap at 24)
+                            now = datetime.now()
+                            adjusted = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+                            for _ in range(24):
+                                if adjusted.hour not in pattern.worst_response_hours:
+                                    break
+                                adjusted += timedelta(hours=1)
+
+                            await self.db_service.update_reminder(
+                                rid, {"scheduled_time": adjusted.isoformat()}
+                            )
+                            logger.info(
+                                f"Adaptive scheduler: deferred {rid} (user={reminder.user_id}) "
+                                f"from hour {reminder.scheduled_time.hour} → {adjusted.hour} "
+                                f"(worst hours: {pattern.worst_response_hours})"
+                            )
+                            continue
+
                     await self.deliver_reminder(reminder)
-                
+
                 await asyncio.sleep(self.reminder_check_interval)
-                
+
             except Exception as e:
                 logger.error(f"Error in reminder scheduler task: {e}")
-                await asyncio.sleep(60)  # Wait longer on error
+                await asyncio.sleep(60)
     
     async def _alarm_timeout_monitor_task(self):
         """
@@ -353,11 +381,29 @@ class RealTimeReminderEngine:
         """Background task for updating user behavior patterns."""
         while self.is_running:
             try:
-                # Update behavior patterns every hour
-                # This would get all active users and update their patterns
-                logger.info("Running behavior pattern analysis...")
+                user_ids = await self.db_service.get_active_user_ids()
+
+                if user_ids:
+                    logger.info(f"Running behavior pattern analysis for {len(user_ids)} active users...")
+                    for user_id in user_ids:
+                        try:
+                            pattern = self.behavior_tracker.get_user_behavior_pattern(
+                                user_id=user_id,
+                                days=30
+                            )
+                            logger.info(
+                                f"  [{user_id}] optimal_hour={pattern.optimal_reminder_hour}, "
+                                f"trend={pattern.confusion_trend}, "
+                                f"time_adj={pattern.recommended_time_adjustment_minutes}min, "
+                                f"escalate={pattern.escalation_recommended}"
+                            )
+                        except Exception as user_err:
+                            logger.warning(f"Pattern analysis failed for user {user_id}: {user_err}")
+                else:
+                    logger.info("Behavior analysis: no active users found")
+
                 await asyncio.sleep(3600)  # 1 hour
-                
+
             except Exception as e:
                 logger.error(f"Error in behavior analysis task: {e}")
                 await asyncio.sleep(1800)  # 30 minutes on error

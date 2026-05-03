@@ -12,7 +12,8 @@ Provides endpoints for:
 
 from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import logging
 import uuid
 import tempfile
@@ -46,6 +47,7 @@ from src.features.reminder_system.weekly_report_generator import (
 )
 from src.services.reminder_db_service import ReminderDatabaseService
 from src.services.user_cognitive_score import UserCognitiveScoreService
+from src.database import Database
 from src.services.chatbot import get_whisper_service
 from src.features.conversational_ai.nlp.nlp_engine import NLPEngine
 
@@ -65,15 +67,13 @@ router = APIRouter(prefix="/api/reminders", tags=["reminders"])
 
 # Initialize components (these would typically come from dependency injection)
 reminder_analyzer = PittBasedReminderAnalyzer()
-behavior_tracker = BehaviorTracker()
+_db_service = ReminderDatabaseService()          # singleton used by get_db_service() too
+behavior_tracker = BehaviorTracker(db_service=_db_service)
 scheduler = AdaptiveReminderScheduler(behavior_tracker, reminder_analyzer)
 caregiver_notifier = CaregiverNotifier()
 report_generator = WeeklyReportGenerator(behavior_tracker)
 cognitive_score_service = UserCognitiveScoreService(reminder_analyzer, behavior_tracker)
 nlp_engine = NLPEngine()
-
-# Database service - initialized lazily
-_db_service = None
 _bert_parser = None
 
 def _parse_reminder_from_text(
@@ -110,6 +110,75 @@ def _parse_reminder_from_text(
     return _parse_reminder_regex(text, user_id, priority_override)
 
 
+def _normalize_spoken_numbers(text: str) -> str:
+    """
+    Convert spoken number words to digits so time-extraction regexes can match.
+    Handles Whisper transcriptions like 'six PM' -> '6 PM', 'three thirty' -> '3:30'.
+    """
+    import re as _re
+
+    word_to_num = {
+        'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4',
+        'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9',
+        'ten': '10', 'eleven': '11', 'twelve': '12', 'thirteen': '13',
+        'fourteen': '14', 'fifteen': '15', 'sixteen': '16', 'seventeen': '17',
+        'eighteen': '18', 'nineteen': '19', 'twenty': '20',
+        'twenty-one': '21', 'twenty one': '21', 'twenty-two': '22', 'twenty two': '22',
+        'twenty-three': '23', 'twenty three': '23', 'twenty-four': '24', 'twenty four': '24',
+        'thirty': '30', 'forty': '40', 'forty-five': '45', 'forty five': '45',
+        'fifty': '50',
+    }
+
+    result = text.lower()
+
+    # Handle "half past <number>" -> "<number>:30"
+    result = _re.sub(
+        r'half\s+past\s+(\w+(?:-\w+)?)',
+        lambda m: f"{word_to_num.get(m.group(1), m.group(1))}:30",
+        result
+    )
+    # Handle "quarter past <number>" -> "<number>:15"
+    result = _re.sub(
+        r'quarter\s+past\s+(\w+(?:-\w+)?)',
+        lambda m: f"{word_to_num.get(m.group(1), m.group(1))}:15",
+        result
+    )
+    # Handle "quarter to <number>" -> "<number-1>:45"
+    def _quarter_to(m):
+        w = m.group(1)
+        h = int(word_to_num.get(w, w)) if not w.isdigit() else int(w)
+        return f"{h - 1}:45" if h > 1 else "12:45"
+    result = _re.sub(r'quarter\s+to\s+(\w+(?:-\w+)?)', _quarter_to, result)
+
+    # Handle compound spoken minutes: "three thirty" -> "3:30", "six forty-five" -> "6:45"
+    # Match <hour-word> <minute-word> (but NOT if minute-word is am/pm/o'clock)
+    hour_words = [
+        'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+        'nine', 'ten', 'eleven', 'twelve'
+    ]
+    minute_words = [
+        'ten', 'fifteen', 'twenty', 'twenty-one', 'twenty one',
+        'twenty-two', 'twenty two', 'twenty-three', 'twenty three',
+        'twenty-four', 'twenty four', 'twenty-five', 'twenty five',
+        'thirty', 'thirty-five', 'thirty five', 'forty', 'forty-five',
+        'forty five', 'fifty', 'fifty-five', 'fifty five',
+    ]
+    for hw in hour_words:
+        for mw in sorted(minute_words, key=len, reverse=True):
+            pattern = _re.compile(r'\b' + _re.escape(hw) + r'\s+' + _re.escape(mw) + r'\b')
+            if pattern.search(result):
+                h_digit = word_to_num[hw]
+                m_digit = word_to_num.get(mw, mw)
+                result = pattern.sub(f"{h_digit}:{m_digit}", result)
+
+    # Replace remaining standalone number words with digits
+    # Sort by length descending so "twenty-one" is matched before "twenty"
+    for word, digit in sorted(word_to_num.items(), key=lambda x: len(x[0]), reverse=True):
+        result = _re.sub(r'\b' + _re.escape(word) + r'\b', digit, result)
+
+    return result
+
+
 def _parse_reminder_regex(
     text: str,
     user_id: str,
@@ -128,7 +197,8 @@ def _parse_reminder_regex(
     from datetime import timedelta
     import re
     
-    text_lower = text.lower()
+    # Normalize spoken numbers BEFORE any matching
+    text_lower = _normalize_spoken_numbers(text)
     
     # Extract category based on keywords
     category = "general"
@@ -302,6 +372,70 @@ def get_db_service():
     return _db_service
 
 
+async def _save_caregiver_alert(
+    *,
+    patient_id: str,
+    caregiver_ids: list,
+    alert_type: str,          # "missed_medication" | "snoozed_reminder" | "new_high_priority"
+    priority: str,            # "high" | "critical"
+    reminder_id: str,
+    reminder_title: str,
+    reminder_category: str,
+    scheduled_time: Optional[datetime] = None,
+):
+    """
+    Persist a caregiver alert document to the caregiver_alerts collection.
+    Called whenever a medication reminder is missed, snoozed, or created at
+    high / critical priority so the caregiver dashboard can surface it.
+    """
+    try:
+        if not caregiver_ids:
+            return   # nothing to notify
+
+        type_labels = {
+            "missed_medication":    f"Missed medication: {reminder_title}",
+            "snoozed_reminder":     f"Reminder snoozed: {reminder_title}",
+            "new_high_priority":    f"New {priority} priority reminder: {reminder_title}",
+        }
+        type_messages = {
+            "missed_medication":  (
+                f"{reminder_category.capitalize()} reminder '{reminder_title}' was MISSED"
+                + (f" (scheduled {scheduled_time.strftime('%H:%M')})" if scheduled_time else "") + "."
+            ),
+            "snoozed_reminder": (
+                f"{reminder_category.capitalize()} reminder '{reminder_title}' was snoozed"
+                + (f" (was due {scheduled_time.strftime('%H:%M')})" if scheduled_time else "") + "."
+            ),
+            "new_high_priority": (
+                f"A {priority}-priority {reminder_category} reminder '{reminder_title}' was created"
+                + (f" for {scheduled_time.strftime('%H:%M')}." if scheduled_time else ".")
+            ),
+        }
+
+        alert_doc = {
+            "patient_id":        patient_id,
+            "caregiver_ids":     caregiver_ids,
+            "title":             type_labels.get(alert_type, f"Reminder alert: {reminder_title}"),
+            "message":           type_messages.get(alert_type, ""),
+            "priority":          priority,
+            "type":              alert_type,
+            "reminder_id":       reminder_id,
+            "reminder_title":    reminder_title,
+            "reminder_category": reminder_category,
+            "created_at":        datetime.now(),
+            "resolved":          False,
+        }
+
+        alerts_col = Database.get_collection("caregiver_alerts")
+        await alerts_col.insert_one(alert_doc)
+        logger.info(
+            f"Caregiver alert saved: type={alert_type}, patient={patient_id}, "
+            f"reminder={reminder_id}, priority={priority}"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save caregiver alert: {e}")
+
+
 @router.post("/create", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def create_reminder(reminder: Reminder):
     """
@@ -329,7 +463,24 @@ async def create_reminder(reminder: Reminder):
         db_result = await db_service.create_reminder(reminder)
         
         logger.info(f"Created reminder {reminder.id} for user {reminder.user_id}")
-        
+
+        # ── Auto-alert caregivers for high/critical medication reminders ─────
+        if (
+            reminder.caregiver_ids
+            and reminder.category == "medication"
+            and reminder.priority in (ReminderPriority.HIGH, ReminderPriority.CRITICAL)
+        ):
+            await _save_caregiver_alert(
+                patient_id=reminder.user_id,
+                caregiver_ids=reminder.caregiver_ids,
+                alert_type="new_high_priority",
+                priority=reminder.priority.value,
+                reminder_id=reminder.id,
+                reminder_title=reminder.title,
+                reminder_category=reminder.category,
+                scheduled_time=reminder.scheduled_time,
+            )
+
         return {
             "status": "success",
             "message": "Reminder created successfully",
@@ -350,7 +501,8 @@ async def create_reminder_from_audio(
     user_id: str = Form(..., description="User identifier"),
     file: UploadFile = File(..., description="Audio file (wav, mp3, m4a, ogg, flac)"),
     priority: Optional[str] = Form("medium", description="Reminder priority (low, medium, high, critical)"),
-    caregiver_ids: Optional[str] = Form(None, description="Comma-separated caregiver IDs")
+    caregiver_ids: Optional[str] = Form(None, description="Comma-separated caregiver IDs"),
+    user_timezone: Optional[str] = Form(None, description="IANA timezone name e.g. Asia/Colombo")
 ):
     """
     Create reminder from audio recording using Whisper transcription + NLP parsing.
@@ -426,6 +578,18 @@ async def create_reminder_from_audio(
                 priority_override=priority
             )
             
+            # Convert extracted naive local time to UTC using user's timezone
+            if user_timezone:
+                try:
+                    user_tz = ZoneInfo(user_timezone)
+                    naive_local = reminder_details["scheduled_time"]
+                    local_aware = naive_local.replace(tzinfo=user_tz)
+                    utc_dt = local_aware.astimezone(timezone.utc).replace(tzinfo=None)
+                    reminder_details["scheduled_time"] = utc_dt
+                    logger.info(f"🌍 Converted {naive_local} ({user_timezone}) → {utc_dt} UTC")
+                except Exception as tz_err:
+                    logger.warning(f"Timezone conversion failed ({user_timezone}): {tz_err}")
+
             # Step 3: Create reminder
             reminder_id = f"reminder_{uuid.uuid4().hex[:12]}"
             
@@ -807,38 +971,57 @@ async def get_user_behavior_pattern(
 async def get_optimal_schedule(reminder_id: str):
     """
     Get optimal schedule recommendation for a reminder.
-    
+
     Returns adaptive scheduling recommendations based on:
     - Historical user behavior
     - Optimal response times
     - Cognitive risk patterns
-    
+
     - **reminder_id**: Reminder identifier
     """
     try:
-        # TODO: Get reminder from database
-        # reminder = db_service.get_reminder(reminder_id)
-        
-        # Mock reminder
+        db_service = get_db_service()
+        reminder_data = await db_service.get_reminder(reminder_id)
+
+        if not reminder_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
+
         from src.features.reminder_system.reminder_models import Reminder, ReminderPriority
-        
+
+        scheduled_time = reminder_data.get("scheduled_time")
+        if isinstance(scheduled_time, str):
+            scheduled_time = datetime.fromisoformat(scheduled_time.replace("+00:00", ""))
+        elif not isinstance(scheduled_time, datetime):
+            scheduled_time = datetime.now()
+
         reminder = Reminder(
             id=reminder_id,
-            user_id="user123",
-            title="Sample Reminder",
-            scheduled_time=datetime.now(),
-            priority=ReminderPriority.MEDIUM,
-            category="medication"
+            user_id=reminder_data["user_id"],
+            title=reminder_data.get("title", "Reminder"),
+            description=reminder_data.get("description"),
+            scheduled_time=scheduled_time,
+            priority=ReminderPriority(reminder_data.get("priority", "medium")),
+            category=reminder_data.get("category", "general"),
         )
-        
+
         schedule_info = scheduler.get_optimal_reminder_schedule(reminder)
-        
+
+        # Convert datetime to ISO string for JSON serialization
+        if isinstance(schedule_info.get("optimal_time"), datetime):
+            schedule_info["optimal_time"] = schedule_info["optimal_time"].isoformat()
+
         return {
             "status": "success",
             "reminder_id": reminder_id,
+            "user_id": reminder_data["user_id"],
             "schedule": schedule_info
         }
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting schedule: {e}", exc_info=True)
         raise HTTPException(
@@ -859,8 +1042,20 @@ async def update_reminder(reminder_id: str, updated_reminder: Reminder):
         updated_reminder.id = reminder_id
         updated_reminder.updated_at = datetime.now()
         
-        # TODO: Update in database
-        # db_service.update_reminder(updated_reminder.dict())
+        # Build update payload — preserve created_at, replace everything else
+        update_data = updated_reminder.dict()
+        update_data.pop("id", None)        # _id is the query key, not a $set field
+        update_data.pop("created_at", None)  # Do not overwrite original creation time
+        update_data["updated_at"] = datetime.now()
+        
+        db_service = get_db_service()
+        db_result = await db_service.update_reminder(reminder_id, update_data)
+        
+        if db_result.get("error") == "not_found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
         
         logger.info(f"Updated reminder {reminder_id}")
         
@@ -870,6 +1065,8 @@ async def update_reminder(reminder_id: str, updated_reminder: Reminder):
             "reminder": updated_reminder.dict()
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error updating reminder: {e}", exc_info=True)
         raise HTTPException(
@@ -886,8 +1083,14 @@ async def delete_reminder(reminder_id: str):
     - **reminder_id**: Reminder identifier
     """
     try:
-        # TODO: Delete from database
-        # db_service.delete_reminder(reminder_id)
+        db_service = get_db_service()
+        deleted = await db_service.delete_reminder(reminder_id)
+        
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
         
         logger.info(f"Deleted reminder {reminder_id}")
         
@@ -897,6 +1100,8 @@ async def delete_reminder(reminder_id: str):
             "reminder_id": reminder_id
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting reminder: {e}", exc_info=True)
         raise HTTPException(
@@ -906,38 +1111,100 @@ async def delete_reminder(reminder_id: str):
 
 
 @router.post("/snooze/{reminder_id}", response_model=dict)
-async def snooze_reminder(reminder_id: str, delay_minutes: int = 15):
+async def snooze_reminder(reminder_id: str, delay_minutes: int = 15, user_id: Optional[str] = None):
     """
     Snooze a reminder for specified duration.
     
     - **reminder_id**: Reminder identifier
     - **delay_minutes**: Minutes to delay (default 15)
+    - **user_id**: User performing the snooze (for behavior tracking)
     """
     try:
-        # TODO: Get reminder from database
         from src.features.reminder_system.reminder_models import Reminder, ReminderPriority
-        
-        reminder = Reminder(
+
+        db_service = get_db_service()
+        reminder_data = await db_service.get_reminder(reminder_id)
+        if not reminder_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reminder {reminder_id} not found"
+            )
+
+        effective_user = user_id or reminder_data.get("user_id", "unknown")
+        scheduled_time = reminder_data.get("scheduled_time")
+        if isinstance(scheduled_time, str):
+            scheduled_time = datetime.fromisoformat(scheduled_time.replace("+00:00", ""))
+
+        reminder_obj = Reminder(
             id=reminder_id,
-            user_id="user123",
-            title="Sample Reminder",
-            scheduled_time=datetime.now(),
-            priority=ReminderPriority.MEDIUM,
-            category="medication"
+            user_id=effective_user,
+            title=reminder_data.get("title", "Reminder"),
+            scheduled_time=scheduled_time or datetime.now(),
+            priority=ReminderPriority(reminder_data.get("priority", "medium")),
+            category=reminder_data.get("category", "general"),
+            caregiver_ids=reminder_data.get("caregiver_ids", []),
+            description=reminder_data.get("description"),
         )
-        
+
         updated_reminder = scheduler.reschedule_reminder(
-            reminder=reminder,
+            reminder=reminder_obj,
             delay_minutes=delay_minutes,
             reason="user_requested_snooze"
         )
-        
+
+        new_time = updated_reminder.scheduled_time
+        await db_service.update_reminder(
+            reminder_id,
+            {
+                "status": "snoozed",
+                "scheduled_time": new_time.isoformat(),
+                "snoozed_at": datetime.now().isoformat(),
+                "snooze_delay_minutes": delay_minutes,
+                "snooze_count": reminder_data.get("snooze_count", 0) + 1,
+            }
+        )
+
+        # Log interaction for behavior tracking
+        try:
+            snooze_interaction = ReminderInteraction(
+                reminder_id=reminder_id,
+                user_id=effective_user,
+                reminder_category=reminder_obj.category,
+                interaction_type=InteractionType.DELAYED,
+                interaction_time=datetime.now(),
+                response_time_seconds=None,
+                user_response_text=f"Snoozed for {delay_minutes} minutes"
+            )
+            behavior_tracker.log_interaction(snooze_interaction)
+        except Exception as bt_err:
+            logger.warning(f"Behavior tracking failed on snooze: {bt_err}")
+
+        # ── Alert caregivers for snoozed medication reminders ──────────────
+        if (
+            reminder_obj.caregiver_ids
+            and reminder_obj.category == "medication"
+            and reminder_obj.priority in (ReminderPriority.HIGH, ReminderPriority.CRITICAL)
+        ):
+            await _save_caregiver_alert(
+                patient_id=effective_user,
+                caregiver_ids=reminder_obj.caregiver_ids,
+                alert_type="snoozed_reminder",
+                priority=reminder_obj.priority.value,
+                reminder_id=reminder_id,
+                reminder_title=reminder_obj.title,
+                reminder_category=reminder_obj.category,
+                scheduled_time=scheduled_time,
+            )
+
         return {
             "status": "success",
             "message": f"Reminder snoozed for {delay_minutes} minutes",
-            "new_scheduled_time": updated_reminder.scheduled_time.isoformat()
+            "new_scheduled_time": new_time.isoformat(),
+            "snooze_count": reminder_data.get("snooze_count", 0) + 1,
         }
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error snoozing reminder: {e}", exc_info=True)
         raise HTTPException(
@@ -1580,6 +1847,40 @@ async def complete_reminder(reminder_id: str):
         
         # Mark as completed
         completion_time = datetime.now()
+        current_scheduled = reminder_data.get("scheduled_time")
+        if isinstance(current_scheduled, str):
+            current_scheduled = datetime.fromisoformat(current_scheduled.replace('+00:00', ''))
+
+        # ── Log interaction so BehaviorTracker can learn from this completion ──
+        # Prefer alarm_triggered_at (more accurate) over scheduled_time as base
+        alarm_triggered_at = reminder_data.get("alarm_triggered_at")
+        if alarm_triggered_at:
+            if isinstance(alarm_triggered_at, str):
+                alarm_triggered_at = datetime.fromisoformat(alarm_triggered_at.replace('+00:00', ''))
+            response_time_seconds = (completion_time - alarm_triggered_at).total_seconds()
+        elif current_scheduled:
+            response_time_seconds = (completion_time - current_scheduled).total_seconds()
+        else:
+            response_time_seconds = None
+
+        try:
+            complete_interaction = ReminderInteraction(
+                reminder_id=reminder_id,
+                user_id=reminder_data["user_id"],
+                reminder_category=reminder_data.get("category"),
+                interaction_type=InteractionType.CONFIRMED,
+                interaction_time=completion_time,
+                response_time_seconds=response_time_seconds,
+                user_response_text="Completed via /complete endpoint"
+            )
+            behavior_tracker.log_interaction(complete_interaction)
+            logger.info(
+                f"Logged CONFIRMED interaction for {reminder_id}: "
+                f"response_time={response_time_seconds:.1f}s" if response_time_seconds else ""
+            )
+        except Exception as bt_err:
+            logger.warning(f"BehaviorTracker log failed in complete: {bt_err}")
+
         await db_service.update_reminder(
             reminder_id,
             {
@@ -1587,28 +1888,50 @@ async def complete_reminder(reminder_id: str):
                 "completed_at": completion_time
             }
         )
-        
+
         logger.info(f"Marked reminder {reminder_id} as completed")
-        
+
         # Handle repeat patterns
         repeat_pattern = reminder_data.get("repeat_pattern")
         next_reminder_id = None
         next_scheduled_time = None
-        
+        adaptive_time_applied = 0
+
         if repeat_pattern in ["daily", "weekly"]:
-            # Calculate next occurrence
-            current_scheduled = reminder_data["scheduled_time"]
-            if isinstance(current_scheduled, str):
-                current_scheduled = datetime.fromisoformat(current_scheduled.replace('+00:00', ''))
-            
             if repeat_pattern == "daily":
                 next_scheduled_time = current_scheduled + timedelta(days=1)
-            elif repeat_pattern == "weekly":
+            else:
                 next_scheduled_time = current_scheduled + timedelta(weeks=1)
-            
+
+            # ── Adaptive time adjustment ─────────────────────────────────────
+            # After ≥7 interactions, shift the alarm earlier/later based on the
+            # user's measured average response delay.  Use a delta from the last
+            # applied adjustment so the time never drifts unboundedly.
+            if reminder_data.get("adaptive_scheduling_enabled", True):
+                try:
+                    pattern = behavior_tracker.get_user_behavior_pattern(
+                        user_id=reminder_data["user_id"],
+                        category=reminder_data.get("category"),
+                        days=30
+                    )
+                    recommended = pattern.recommended_time_adjustment_minutes
+                    # Delta from previously applied offset (prevents cumulative drift)
+                    previously_applied = reminder_data.get("applied_time_adjustment_minutes", 0)
+                    delta = recommended - previously_applied
+                    if delta != 0 and abs(recommended) >= 5:  # only shift ≥5 min
+                        next_scheduled_time += timedelta(minutes=delta)
+                        adaptive_time_applied = recommended
+                        logger.info(
+                            f"Adaptive time shift applied for {reminder_data['user_id']}: "
+                            f"recommended={recommended}min, delta={delta}min → "
+                            f"next alarm at {next_scheduled_time.strftime('%H:%M')}"
+                        )
+                except Exception as adapt_err:
+                    logger.warning(f"Adaptive scheduling lookup failed: {adapt_err}")
+
             # Create next reminder instance
             from src.features.reminder_system.reminder_models import Reminder, ReminderPriority, ReminderStatus
-            
+
             next_reminder = Reminder(
                 id=f"reminder_{uuid.uuid4().hex[:12]}",
                 user_id=reminder_data["user_id"],
@@ -1626,17 +1949,29 @@ async def complete_reminder(reminder_id: str):
                 notify_caregiver_on_miss=reminder_data.get("notify_caregiver_on_miss", True),
                 status=ReminderStatus.ACTIVE
             )
-            
+
             result = await db_service.create_reminder(next_reminder)
             next_reminder_id = result["id"]
-            
-            logger.info(f"Created next {repeat_pattern} reminder {next_reminder_id} scheduled for {next_scheduled_time}")
-        
+
+            # Persist the applied offset so next /complete can compute the delta
+            if adaptive_time_applied != 0:
+                await db_service.update_reminder(
+                    next_reminder_id,
+                    {"applied_time_adjustment_minutes": adaptive_time_applied}
+                )
+
+            logger.info(
+                f"Created next {repeat_pattern} reminder {next_reminder_id} "
+                f"scheduled for {next_scheduled_time}"
+            )
+
         return {
             "status": "success",
             "message": "Reminder completed successfully",
             "reminder_id": reminder_id,
             "completed_at": completion_time.isoformat(),
+            "response_time_seconds": round(response_time_seconds, 1) if response_time_seconds is not None else None,
+            "adaptive_time_applied_minutes": adaptive_time_applied,
             "has_next_occurrence": next_reminder_id is not None,
             "next_reminder_id": next_reminder_id,
             "next_scheduled_time": next_scheduled_time.isoformat() if next_scheduled_time else None
@@ -2060,6 +2395,27 @@ async def mark_reminder_missed(reminder_id: str, user_id: Optional[str] = None):
             f"(user: {effective_user_id})"
         )
 
+        # ── Alert caregivers when a medication reminder is missed ──────────
+        caregiver_ids = reminder_data.get("caregiver_ids", [])
+        category      = reminder_data.get("category", "general")
+        priority_val  = reminder_data.get("priority", "medium")
+        if caregiver_ids and category == "medication":
+            sched_raw = reminder_data.get("scheduled_time")
+            sched_dt  = (
+                datetime.fromisoformat(sched_raw.replace("+00:00", ""))
+                if isinstance(sched_raw, str) else sched_raw
+            )
+            await _save_caregiver_alert(
+                patient_id=effective_user_id,
+                caregiver_ids=caregiver_ids,
+                alert_type="missed_medication",
+                priority=priority_val,
+                reminder_id=reminder_id,
+                reminder_title=reminder_data.get("title", "Reminder"),
+                reminder_category=category,
+                scheduled_time=sched_dt,
+            )
+
         return {
             "status": "success",
             "message": "Reminder marked as missed",
@@ -2163,7 +2519,7 @@ async def snooze_reminder_with_tracking(reminder_id: str, delay_minutes: int = 1
             "status": "success",
             "message": f"Reminder snoozed for {delay_minutes} minutes",
             "reminder_id": reminder_id,
-            "new_scheduled_time": updated_reminder.scheduled_time.isoformat(),
+            "new_scheduled_time": updated_reminder.scheduled_time.strftime("%Y-%m-%dT%H:%M:%S"),
             "snooze_count_week": pattern.delayed_count,
             "snooze_rate": pattern.delayed_count / pattern.total_reminders if pattern.total_reminders > 0 else 0,
             "caregiver_alert": alert_caregiver,

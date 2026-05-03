@@ -1,0 +1,125 @@
+{
+  "retrain_date": "2026-03-21T05:28:35.552757",
+  "retrain_reason": "Class imbalance in label derivation (not just training)",
+  "dataset": "Pitt Corpus (DementiaBank)",
+  "total_samples": 1289,
+  "control_samples": 247,
+  "dementia_samples": 1042,
+  "train_samples": 837,
+  "test_samples": 452,
+  "feature_columns": [
+    "word_count",
+    "sentence_count",
+    "avg_words_per_sentence",
+    "avg_word_length",
+    "unique_word_ratio",
+    "hesitation_count",
+    "false_starts",
+    "self_corrections",
+    "uncertainty_markers",
+    "semantic_incoherence",
+    "word_finding_difficulty",
+    "circumlocution",
+    "tangentiality",
+    "narrative_coherence",
+    "response_coherence",
+    "task_completion_score",
+    "language_deterioration_score"
+  ],
+  "feature_count": 17,
+  "cv_folds": 5,
+  "n_search_iter": 60,
+  "label_derivation": {
+    "confusion_detection": {
+      "score_threshold": 1.5,
+      "percentile_used": 40,
+      "positive_rate": 0.3134212567882079,
+      "fix": "repeated_questions weight 1.5\u21921.0; threshold is now data-driven"
+    },
+    "caregiver_alert": {
+      "score_threshold": 1.5,
+      "percentile_used": 45,
+      "positive_rate": 0.5492629945694336,
+      "fix": "dementia_label weight 2.0\u21921.0; threshold now data-driven; old setup guaranteed 100% alert for every dementia positive"
+    }
+  },
+  "fixes_applied": [
+    "CRITICAL: dementia_label weight in alert_score reduced 2.0\u21921.0 (was causing ~100% positive rate with threshold=2.0)",
+    "repeated_questions weight in confusion_score reduced 1.5\u21921.0 (no single feature should dominate the score)",
+    "Hardcoded thresholds replaced with adaptive percentile-based selection that automatically slides to hit [30%, 55%] positive-rate window",
+    "Sanity check added: alert positives without confusion/dementia are flagged",
+    "Safety guard added in train_balanced_model(): refuses to train if positive rate is still outside [15%, 85%]",
+    "SMOTE sampling_strategy=1.0 retained (correctly handles remaining imbalance)",
+    "class_weight=balanced retained on RF and LR",
+    "CV scoring=f1_macro retained",
+    "Primary evaluation metric=balanced_accuracy retained"
+  ],
+  "confusion_detection": {
+    "best_algorithm": "gradient_boosting",
+    "optimal_threshold": 0.4270270322377139,
+    "test_balanced_accuracy": 0.8943695696791407,
+    "test_plain_accuracy": 0.9026548672566371,
+    "test_macro_f1": 0.8883073121419747,
+    "test_f1_positive_class": 0.8482758570727705,
+    "test_auc": 0.947367220815945,
+    "test_precision": 0.825503355704698,
+    "test_recall": 0.8723404255319149,
+    "cv_macro_f1": 0.8778137402196237,
+    "algo_comparison": {
+      "random_forest": {
+        "cv_macro_f1": 0.8343251119385723,
+        "train_macro_f1": 0.9116367030474153,
+        "cv_gap": 0.077311591108843
+      },
+      "gradient_boosting": {
+        "cv_macro_f1": 0.8778137402196237,
+        "train_macro_f1": 0.9892005208989415,
+        "cv_gap": 0.11138678067931784
+      },
+      "logistic_regression": {
+        "cv_macro_f1": 0.8279201923790991,
+        "train_macro_f1": 0.8281647889968173,
+        "cv_gap": 0.00024459661771825125
+      }
+    },
+    "note": "Balanced accuracy and macro F1 are the reliable metrics. Plain accuracy is kept for comparison only.",
+    "positive_rate_full_dataset": 0.3134212567882079,
+    "label_threshold_value": 1.5,
+    "label_percentile_used": 40,
+    "fix_notes": "repeated_questions weight reduced 1.5x\u21921.0x. Threshold is now data-driven (percentile-based) not hardcoded. adaptive_threshold() slides until 30-55% positive rate achieved."
+  },
+  "caregiver_alert": {
+    "best_algorithm": "gradient_boosting",
+    "optimal_threshold": 0.2577242456006786,
+    "test_balanced_accuracy": 0.918702711223203,
+    "test_plain_accuracy": 0.922566371681416,
+    "test_macro_f1": 0.9214026301799989,
+    "test_f1_positive_class": 0.93096646443503,
+    "test_auc": 0.9753113177805801,
+    "test_precision": 0.8973384030418251,
+    "test_recall": 0.9672131147540983,
+    "cv_macro_f1": 0.9034140034322855,
+    "algo_comparison": {
+      "random_forest": {
+        "cv_macro_f1": 0.8946982413467683,
+        "train_macro_f1": 0.9208351464913,
+        "cv_gap": 0.026136905144531708
+      },
+      "gradient_boosting": {
+        "cv_macro_f1": 0.9034140034322855,
+        "train_macro_f1": 0.97945259080619,
+        "cv_gap": 0.07603858737390445
+      },
+      "logistic_regression": {
+        "cv_macro_f1": 0.8261224677899287,
+        "train_macro_f1": 0.8252574984599237,
+        "cv_gap": -0.0008649693300050165
+      }
+    },
+    "note": "Balanced accuracy and macro F1 are the reliable metrics. Plain accuracy is kept for comparison only.",
+    "positive_rate_full_dataset": 0.5492629945694336,
+    "label_threshold_value": 1.5,
+    "label_percentile_used": 45,
+    "fix_notes": "CRITICAL FIX: dementia_label weight reduced 2.0\u21921.0. Previously, threshold=2.0 with weight=2.0 meant every dementia positive automatically became an alert positive (near-100% rate). Threshold is now data-driven (percentile-based)."
+  }
+}

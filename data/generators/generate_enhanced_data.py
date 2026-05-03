@@ -165,7 +165,7 @@ def generate_enhanced_session(user_id, persona_name, persona_config, session_num
     }
 
 # Generate enhanced dataset
-print("🔄 Generating ENHANCED dataset with realistic noise...")
+print("Generating ENHANCED dataset with realistic noise...")
 data = []
 user_counter = 1
 

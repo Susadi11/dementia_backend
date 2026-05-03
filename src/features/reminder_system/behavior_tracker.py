@@ -40,10 +40,54 @@ class BehaviorTracker:
         self.db_service = db_service
         self.interaction_cache: Dict[str, List[ReminderInteraction]] = defaultdict(list)
     
+    async def warm_cache_from_db(self, user_id: str, days: int = 30) -> int:
+        """Load recent interactions from MongoDB into the in-memory cache.
+
+        Call this at startup (and optionally before pattern analysis) so that
+        the sync get_user_behavior_pattern() has data even after a server restart.
+        Returns the number of interactions loaded.
+        """
+        if not self.db_service:
+            return 0
+        try:
+            from datetime import timedelta
+            start_date = datetime.now() - timedelta(days=days)
+            docs = await self.db_service.get_reminder_interactions_async(
+                user_id=user_id, start_date=start_date
+            )
+            loaded = 0
+            for doc in docs:
+                interaction_time = doc.get("interaction_time", datetime.now())
+                if isinstance(interaction_time, str):
+                    interaction_time = datetime.fromisoformat(interaction_time)
+                interaction = ReminderInteraction(
+                    id=doc.get("id"),
+                    reminder_id=doc.get("reminder_id", ""),
+                    user_id=user_id,
+                    reminder_category=doc.get("reminder_category"),
+                    interaction_type=InteractionType(doc.get("interaction_type", "confirmed")),
+                    interaction_time=interaction_time,
+                    user_response_text=doc.get("user_response_text"),
+                    cognitive_risk_score=doc.get("cognitive_risk_score"),
+                    confusion_detected=doc.get("confusion_detected", False),
+                    memory_issue_detected=doc.get("memory_issue_detected", False),
+                    response_time_seconds=doc.get("response_time_seconds"),
+                    recommended_action=doc.get("recommended_action"),
+                )
+                cache_key = f"{user_id}_{interaction.reminder_id}"
+                if interaction not in self.interaction_cache[cache_key]:
+                    self.interaction_cache[cache_key].append(interaction)
+                    loaded += 1
+            logger.info(f"Warmed cache for user {user_id}: {loaded} interactions loaded from DB")
+            return loaded
+        except Exception as e:
+            logger.error(f"Cache warm-up failed for user {user_id}: {e}")
+            return 0
+
     def log_interaction(self, interaction: ReminderInteraction):
         """
         Log a user interaction with a reminder.
-        
+
         Args:
             interaction: ReminderInteraction object with details
         """
@@ -293,27 +337,56 @@ class BehaviorTracker:
         self,
         interactions: List[ReminderInteraction]
     ) -> int:
-        """Calculate recommended time adjustment in minutes."""
-        if len(interactions) < 5:
+        """
+        Calculate recommended time adjustment in minutes.
+
+        Negative value = shift alarm EARLIER (e.g. -12 → move alarm 12 min early
+        so the user acts at the original scheduled time).
+        Positive value = shift alarm LATER.
+
+        Primary logic:
+          If average response delay across CONFIRMED/DELAYED interactions > 5 min,
+          shift the alarm earlier by that average so the user acts on time.
+          Example: alarm 8:00, user confirms at 8:12 on average → recommend -12
+          so alarm fires at 7:48 and user acts at ~8:00.
+
+        Fallback (when response_time_seconds not available):
+          If the same hour is IGNORED ≥3 times, suggest +30 min shift.
+        Requires at least 7 interactions (≈1 week of daily reminders).
+        """
+        if len(interactions) < 7:
             return 0
-        
-        # Analyze response patterns by time
-        ignored_times = [
+
+        # ── Primary: use measured response delays ──────────────────────────
+        response_delays = [
+            i.response_time_seconds for i in interactions
+            if i.response_time_seconds is not None
+            and i.interaction_type in (
+                InteractionType.CONFIRMED, InteractionType.DELAYED
+            )
+            and 0 <= i.response_time_seconds <= 3600  # ignore outliers >1 hour
+        ]
+
+        if len(response_delays) >= 5:
+            avg_delay_seconds = statistics.mean(response_delays)
+            avg_delay_minutes = avg_delay_seconds / 60
+
+            if avg_delay_minutes > 5:
+                # Shift alarm earlier so action lands at intended time
+                shift = -round(avg_delay_minutes)
+                return max(-60, shift)   # cap: never move more than 60 min early
+            return 0
+
+        # ── Fallback: ignored-hour heuristic ──────────────────────────────
+        ignored_hours = [
             i.interaction_time.hour for i in interactions
             if i.interaction_type == InteractionType.IGNORED
         ]
-        
-        if not ignored_times:
+        if not ignored_hours:
             return 0
-        
-        # If consistently ignored at certain hour, suggest shift
-        most_ignored_hour = max(set(ignored_times), key=ignored_times.count)
-        ignored_count = ignored_times.count(most_ignored_hour)
-        
-        if ignored_count >= 3:
-            # Suggest shifting by 30-60 minutes
+        most_ignored_hour = max(set(ignored_hours), key=ignored_hours.count)
+        if ignored_hours.count(most_ignored_hour) >= 3:
             return 30
-        
         return 0
     
     def _should_escalate(

@@ -19,6 +19,7 @@ from src.models.detection_session import (
     get_time_window_and_session
 )
 from src.database import Database
+from src.services.chatbot.crisis_detector import detect_crisis
 
 router = APIRouter(prefix="/chat", tags=["conversational_ai"])
 logger = logging.getLogger(__name__)
@@ -185,10 +186,23 @@ async def process_text_chat(request: TextQuery) -> ChatResponse:
             logger.warning(f"Detection failed (non-critical): {str(e)}")
             # Detection failure doesn't break the chat
 
-        # ==================== END DETECTION ====================
-
         # Add detection to result
         result["detection"] = detection_result
+
+        # ==================== CRISIS DETECTION ====================
+        try:
+            is_crisis, matched_phrase = detect_crisis(user_message)
+            if is_crisis:
+                await _handle_crisis_alert(
+                    db=Database.db,
+                    user_id=request.user_id,
+                    message_text=user_message,
+                    matched_phrase=matched_phrase
+                )
+                result["safety_warnings"] = (result.get("safety_warnings") or []) + ["crisis_detected"]
+        except Exception as e:
+            logger.error(f"Crisis detection error (non-critical): {e}")
+        # ==================== END CRISIS DETECTION ====================
 
         return ChatResponse(**result)
 
@@ -427,6 +441,21 @@ async def process_voice_chat(
             # Add detection and audio features to result
             result["detection"] = detection_result
             result["audio_features"] = audio_features
+
+            # ==================== CRISIS DETECTION ====================
+            try:
+                is_crisis, matched_phrase = detect_crisis(transcribed_text)
+                if is_crisis:
+                    await _handle_crisis_alert(
+                        db=Database.db,
+                        user_id=user_id,
+                        message_text=transcribed_text,
+                        matched_phrase=matched_phrase
+                    )
+                    result["safety_warnings"] = (result.get("safety_warnings") or []) + ["crisis_detected"]
+            except Exception as e:
+                logger.error(f"Crisis detection error (non-critical): {e}")
+            # ==================== END CRISIS DETECTION ====================
 
             return VoiceResponse(
                 **result,
@@ -886,7 +915,102 @@ async def run_finalization_check() -> Dict[str, Any]:
         )
 
 
+# ==================== CRISIS ALERT ENDPOINTS ====================
+
+@router.get("/crisis-alerts/{user_id}",
+            summary="Get Crisis Alerts",
+            description="Get unacknowledged crisis alerts for a patient")
+async def get_crisis_alerts(user_id: str) -> Dict[str, Any]:
+    """Retrieve all unacknowledged crisis alerts for a patient."""
+    try:
+        db = Database.db
+        collection = db["crisis_alerts"]
+        cursor = collection.find(
+            {"user_id": user_id, "acknowledged": False}
+        ).sort("timestamp", -1)
+        alerts = await cursor.to_list(length=None)
+        for a in alerts:
+            a["_id"] = str(a["_id"])
+        return {"success": True, "alerts": alerts, "count": len(alerts)}
+    except Exception as e:
+        logger.error(f"Error fetching crisis alerts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/crisis-alerts/{alert_id}/acknowledge",
+              summary="Acknowledge Crisis Alert",
+              description="Mark a crisis alert as acknowledged by caregiver")
+async def acknowledge_crisis_alert(alert_id: str) -> Dict[str, Any]:
+    """Mark a crisis alert as acknowledged."""
+    try:
+        from bson import ObjectId
+        db = Database.db
+        collection = db["crisis_alerts"]
+        result = await collection.update_one(
+            {"_id": ObjectId(alert_id)},
+            {"$set": {"acknowledged": True, "acknowledged_at": datetime.now()}}
+        )
+        if result.modified_count == 0:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        return {"success": True, "message": "Alert acknowledged"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error acknowledging crisis alert: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== HELPER FUNCTIONS ====================
+
+async def _handle_crisis_alert(db, user_id: str, message_text: str, matched_phrase: str):
+    """Save crisis alert to MongoDB and push WebSocket notification to caregiver."""
+    try:
+        # Look up caregiver linked to this user
+        user_doc = await db["users"].find_one({"user_id": user_id})
+        caregiver_id = user_doc.get("caregiver_id") if user_doc else None
+
+        alert = {
+            "user_id": user_id,
+            "caregiver_id": caregiver_id,
+            "matched_phrase": matched_phrase,
+            "message_preview": message_text[:300],
+            "timestamp": datetime.now(),
+            "acknowledged": False,
+            "acknowledged_at": None,
+        }
+
+        # Persist to MongoDB
+        collection = db["crisis_alerts"]
+        result = await collection.insert_one(alert)
+        alert_id = str(result.inserted_id)
+
+        logger.warning(
+            f"[CRISIS ALERT] Saved for user={user_id}, caregiver={caregiver_id}, "
+            f"phrase='{matched_phrase}', alert_id={alert_id}"
+        )
+
+        # Push real-time WebSocket alert to caregiver if connected
+        if caregiver_id:
+            try:
+                from src.routes.websocket_routes import realtime_engine
+                await realtime_engine._send_caregiver_message(caregiver_id, {
+                    "type": "crisis_alert",
+                    "severity": "CRITICAL",
+                    "alert_id": alert_id,
+                    "user_id": user_id,
+                    "matched_phrase": matched_phrase,
+                    "message_preview": message_text[:300],
+                    "timestamp": datetime.now().isoformat(),
+                    "action_required": "Patient may be in distress. Please check immediately."
+                })
+                logger.info(f"[CRISIS ALERT] WebSocket sent to caregiver={caregiver_id}")
+            except Exception as ws_err:
+                logger.warning(f"[CRISIS ALERT] WebSocket push failed (caregiver may be offline): {ws_err}")
+
+    except Exception as e:
+        logger.error(f"[CRISIS ALERT] Failed to handle crisis alert: {e}")
+        raise
+
 
 def _get_risk_interpretation(risk_level: str) -> Dict[str, Any]:
     """Get interpretation and recommendations for risk level"""

@@ -11,6 +11,9 @@ import numpy as np
 import logging
 from typing import Dict, Any, Optional
 import io
+import os
+import tempfile
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +25,27 @@ try:
 except ImportError:
     LIBROSA_AVAILABLE = False
     logger.warning("librosa not available - audio processing will use placeholder values")
+
+
+def _convert_to_wav(audio_path: str) -> Optional[str]:
+    """
+    Convert any audio file to WAV using ffmpeg.
+    Returns path to temporary WAV file, or None if conversion fails.
+    """
+    try:
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp.close()
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", audio_path, "-ar", "22050", "-ac", "1", tmp.name],
+            capture_output=True, timeout=30
+        )
+        if result.returncode == 0 and os.path.getsize(tmp.name) > 0:
+            return tmp.name
+        os.unlink(tmp.name)
+        return None
+    except Exception as e:
+        logger.warning(f"ffmpeg conversion failed: {e}")
+        return None
 
 
 class AudioProcessor:
@@ -46,9 +70,19 @@ class AudioProcessor:
             logger.warning("librosa not available, returning placeholder values")
             return self._get_placeholder_features()
 
+        wav_path = None
         try:
-            # Load audio file
-            y, sr = librosa.load(audio_path, sr=self.sample_rate)
+            # Convert to WAV first to ensure clean loading (avoids audioread distortion)
+            wav_path = _convert_to_wav(audio_path)
+            load_path = wav_path if wav_path else audio_path
+
+            # Load audio with soundfile backend (clean, no distortion)
+            y, sr = librosa.load(load_path, sr=self.sample_rate)
+
+            # Validate signal isn't clipped/garbage
+            if len(y) == 0 or np.max(np.abs(y)) == 0:
+                logger.warning("Audio signal empty or silent, returning placeholders")
+                return self._get_placeholder_features()
 
             # Extract features
             features = {
@@ -64,6 +98,9 @@ class AudioProcessor:
         except Exception as e:
             logger.error(f"Error extracting audio features: {e}")
             return self._get_placeholder_features()
+        finally:
+            if wav_path and os.path.exists(wav_path):
+                os.unlink(wav_path)
 
     def extract_features_from_bytes(self, audio_bytes: bytes) -> Dict[str, float]:
         """
@@ -103,7 +140,7 @@ class AudioProcessor:
         P5: Detect pause frequency (hesitation pauses).
 
         Method:
-        - Use silence detection to find pauses
+        - Use silence detection to find meaningful pauses (not every inter-word gap)
         - Count pauses and normalize by duration
 
         Args:
@@ -111,11 +148,12 @@ class AudioProcessor:
             sr: Sample rate
 
         Returns:
-            Pause frequency (0-1)
+            Pause frequency (0-1), where 0=no pauses, 1=very frequent pauses
         """
         try:
-            # Detect non-silent intervals
-            intervals = librosa.effects.split(y, top_db=20)
+            # top_db=30 catches only meaningful pauses (not every inter-word gap)
+            # top_db=20 is too sensitive and splits on normal breath/consonant stops
+            intervals = librosa.effects.split(y, top_db=30)
 
             # Count pauses (gaps between intervals)
             pause_count = len(intervals) - 1 if len(intervals) > 1 else 0
@@ -129,10 +167,11 @@ class AudioProcessor:
             # Pause frequency = pauses per second
             pause_frequency = pause_count / total_duration
 
-            # Normalize to 0-1 scale
-            # Normal: 0-0.2 pauses/sec, High: >0.5 pauses/sec
-            # Using 0.5 as max threshold for normalization
-            normalized = min(pause_frequency / 0.5, 1.0)
+            # Calibrated normalization:
+            # Normal speech: ~0.5-1.0 meaningful pauses/sec
+            # Moderate concern: ~1.5-2.0 pauses/sec
+            # High concern:     >3.0 pauses/sec
+            normalized = min(pause_frequency / 3.0, 1.0)
 
             return round(normalized, 3)
 
@@ -154,18 +193,18 @@ class AudioProcessor:
             sr: Sample rate
 
         Returns:
-            Tremor intensity (0-1)
+            Tremor intensity (0-1), where 0=steady voice, 1=very shaky
         """
         try:
             # Extract pitch
             pitches, magnitudes = librosa.piptrack(y=y, sr=sr)
 
-            # Get pitch values where magnitude > 0
+            # Get pitch values where magnitude > threshold (ignore noise floor)
             pitch_values = []
             for t in range(pitches.shape[1]):
                 index = magnitudes[:, t].argmax()
                 pitch = pitches[index, t]
-                if pitch > 0:
+                if pitch > 80:  # Only voiced frames (>80Hz = human voice)
                     pitch_values.append(pitch)
 
             if len(pitch_values) < 2:
@@ -174,9 +213,12 @@ class AudioProcessor:
             # Calculate pitch variability (standard deviation)
             pitch_std = np.std(pitch_values)
 
-            # Normalize tremor intensity
-            # Normal std: 0-20 Hz, High std: >50 Hz
-            tremor_intensity = min(pitch_std / 50.0, 1.0)
+            # Calibrated normalization:
+            # Normal speech pitch std: 30-80 Hz (natural variation)
+            # Mild tremor:             80-120 Hz
+            # Moderate tremor:         120-150 Hz
+            # Severe tremor:           >150 Hz
+            tremor_intensity = min(pitch_std / 150.0, 1.0)
 
             return round(tremor_intensity, 3)
 
