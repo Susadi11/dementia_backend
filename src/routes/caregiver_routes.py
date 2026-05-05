@@ -8,6 +8,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
+import asyncio
 import logging
 from ..services.caregiver_service import get_caregiver_service
 from ..services.reminder_db_service import ReminderDatabaseService
@@ -2012,6 +2013,150 @@ async def resolve_alert(
     except Exception as e:
         logger.error(f"Resolve alert error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to resolve alert")
+
+
+@router.get("/daily-scores/{patient_id}", response_model=dict)
+async def get_daily_scores(
+    patient_id: str,
+    days: int = Query(7, description="Number of days to retrieve (default: 7)"),
+    current_caregiver = Depends(get_current_caregiver)
+):
+    """
+    Get daily AI cognitive risk final scores for a patient.
+
+    Returns the 4-model composite final_score per day, derived from the
+    stored cognitive_risk_score values (which already incorporate the
+    EnhancedModelLoader.get_final_score() output from each interaction).
+
+    Response fields per day:
+    - final_score        : 4-model composite cognitive risk (0-100, lower = healthier)
+    - cognitive_risk_score: same value (alias for clarity)
+    - adherence_score    : reminder completion rate for that day (0-100)
+    - wellness_score     : 0.6 * adherence + 0.4 * (100 - cognitive_risk)
+
+    Requires: Bearer token in Authorization header
+    """
+    try:
+        caregiver_id = current_caregiver["caregiver_id"]
+
+        if not await _caregiver_owns_patient(caregiver_id, patient_id):
+            raise HTTPException(status_code=403, detail="Access denied to this patient")
+
+        reminder_db = ReminderDatabaseService()
+
+        # Fetch interactions and reminders in parallel
+        interactions, all_reminders = await asyncio.gather(
+            reminder_db.get_user_interactions(patient_id, days_back=days),
+            reminder_db.get_user_reminders(patient_id, limit=1000)
+        )
+
+        cutoff = datetime.now() - timedelta(days=days)
+        period_reminders = [
+            r for r in all_reminders
+            if _parse_datetime(r.get("scheduled_time")) >= cutoff
+        ]
+
+        # Group by calendar date
+        from collections import defaultdict
+        daily_interactions: dict = defaultdict(list)
+        for ix in interactions:
+            d = _parse_datetime(ix.get("interaction_time")).date()
+            daily_interactions[d].append(ix)
+
+        daily_reminders: dict = defaultdict(list)
+        for r in period_reminders:
+            d = _parse_datetime(r.get("scheduled_time")).date()
+            daily_reminders[d].append(r)
+
+        today = datetime.now().date()
+        daily_breakdown = []
+
+        for i in range(days):
+            day = today - timedelta(days=i)
+            day_ix = daily_interactions.get(day, [])
+            day_rem = daily_reminders.get(day, [])
+
+            # Average stored cognitive_risk_score (already max(rule_based, final_score))
+            scores = [
+                ix["cognitive_risk_score"]
+                for ix in day_ix
+                if ix.get("cognitive_risk_score") is not None
+            ]
+            avg_risk = sum(scores) / len(scores) if scores else 0.0
+            final_score_pct = round(avg_risk * 100, 1)
+
+            # Daily adherence
+            total = len(day_rem)
+            completed = sum(1 for r in day_rem if r.get("status") == "completed")
+            snoozed = sum(1 for r in day_rem if r.get("status") == "snoozed")
+            adherence = round(
+                ((completed * 1.0 + snoozed * 0.4) / total * 100) if total > 0 else 0.0, 1
+            )
+
+            wellness = round(0.6 * adherence + 0.4 * (100.0 - final_score_pct), 1)
+
+            # Risk level for this day
+            if avg_risk >= 0.75:
+                risk_level = "critical"
+            elif avg_risk >= 0.50:
+                risk_level = "high"
+            elif avg_risk >= 0.25:
+                risk_level = "moderate"
+            else:
+                risk_level = "low"
+
+            daily_breakdown.append({
+                "date": day.isoformat(),
+                "day_of_week": day.strftime("%A"),
+                "final_score": final_score_pct,
+                "cognitive_risk_score": final_score_pct,
+                "adherence_score": adherence,
+                "wellness_score": wellness,
+                "risk_level": risk_level,
+                "total_reminders": total,
+                "completed_reminders": completed,
+                "interaction_count": len(day_ix),
+            })
+
+        # Newest first (matches frontend expectation of [0] = latest day)
+        daily_breakdown.sort(key=lambda x: x["date"], reverse=True)
+
+        # Summary across days that had data
+        active_days = [d for d in daily_breakdown if d["interaction_count"] > 0 or d["total_reminders"] > 0]
+        avg_final = round(
+            sum(d["final_score"] for d in active_days) / len(active_days), 1
+        ) if active_days else 0.0
+        avg_adherence = round(
+            sum(d["adherence_score"] for d in active_days) / len(active_days), 1
+        ) if active_days else 0.0
+
+        # Simple trend: compare first half vs second half of active days
+        if len(active_days) >= 4:
+            half = len(active_days) // 2
+            recent_risk = sum(d["final_score"] for d in active_days[:half]) / half
+            older_risk = sum(d["final_score"] for d in active_days[half:]) / half
+            delta = recent_risk - older_risk
+            trend = "worsening" if delta > 5 else ("improving" if delta < -5 else "stable")
+        else:
+            trend = "insufficient_data"
+
+        return {
+            "success": True,
+            "patient_id": patient_id,
+            "period_days": days,
+            "daily_breakdown": daily_breakdown,
+            "summary": {
+                "avg_final_score": avg_final,
+                "avg_adherence_score": avg_adherence,
+                "trend": trend,
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get daily scores error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve daily scores")
 
 
 # ===== HELPER FUNCTIONS =====

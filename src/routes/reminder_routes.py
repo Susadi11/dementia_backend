@@ -480,6 +480,17 @@ async def create_reminder(reminder: Reminder):
             if user_doc and user_doc.get("caregiver_id"):
                 reminder.caregiver_ids = [user_doc["caregiver_id"]]
 
+        # ── Fallback: look up caregivers who have this patient in their patient_ids list ──
+        if not reminder.caregiver_ids:
+            caregivers_col = Database.get_collection("caregivers")
+            caregiver_cursor = caregivers_col.find(
+                {"patient_ids": reminder.user_id},
+                {"caregiver_id": 1}
+            )
+            linked_ids = [c["caregiver_id"] async for c in caregiver_cursor if c.get("caregiver_id")]
+            if linked_ids:
+                reminder.caregiver_ids = linked_ids
+
         # Save to MongoDB database
         db_service = get_db_service()
         db_result = await db_service.create_reminder(reminder)

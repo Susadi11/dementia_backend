@@ -165,20 +165,22 @@ class PittBasedReminderAnalyzer:
                     confusion_pred, confusion_conf = self.enhanced_models.predict_confusion_detection(user_response)
                     caregiver_pred, caregiver_risk = self.enhanced_models.predict_caregiver_alert(user_response)
                     
+                    # Use full 4-model composite score as cognitive risk
+                    final_score_result = self.enhanced_models.get_final_score(user_response)
+                    cognitive_risk = max(cognitive_risk, final_score_result["final_score"])
+
                     # Store predictions
                     enhanced_predictions = {
                         'cognitive_risk': {'prediction': float(dementia_prob), 'confidence': float(risk_conf)},
                         'confusion_detection': {'prediction': bool(confusion_pred), 'confidence': float(confusion_conf)},
                         'caregiver_alert': {'prediction': bool(caregiver_pred), 'confidence': float(caregiver_risk)},
+                        'composite_score': final_score_result,
                     }
-                    
+
                     # Update analysis with Pitt model predictions
                     if confusion_conf > 0.4:
                         confusion_detected = bool(confusion_pred)
-                    
-                    # Use Pitt model's dementia probability as cognitive risk
-                    cognitive_risk = max(cognitive_risk, dementia_prob)
-                    
+
                     model_confidence = float(risk_conf)
                     
                     logger.info(f"[SUCCESS] Pitt model predictions: dementia_prob={dementia_prob:.3f}, confusion={confusion_pred}, caregiver_alert={caregiver_pred}")
@@ -205,8 +207,7 @@ class PittBasedReminderAnalyzer:
             
             # Decide if caregiver alert needed
             caregiver_alert = self._should_alert_caregiver(
-                cognitive_risk, confusion_detected, memory_issue,
-                interaction_type, reminder_context
+                cognitive_risk, confusion_detected, memory_issue, reminder_context
             )
             
             return {
@@ -390,37 +391,35 @@ class PittBasedReminderAnalyzer:
         # Default - normal processing
         return 'continue_normal'
     
+    def _context_requires_alert(self, priority: str, category: str, cognitive_risk: float, confusion: bool) -> bool:
+        """Return True if reminder priority/category alone warrants a caregiver alert."""
+        if priority == 'critical':
+            return True
+        is_high = priority == 'high'
+        is_medication = category == 'medication'
+        if is_high and is_medication:
+            return True
+        if is_high and cognitive_risk > 0.3:
+            return True
+        if is_medication and (confusion or cognitive_risk > 0.4):
+            return True
+        return False
+
     def _should_alert_caregiver(
         self,
         cognitive_risk: float,
         confusion: bool,
         memory_issue: bool,
-        interaction_type: InteractionType,
         reminder_context: Optional[Dict]
     ) -> bool:
         """Determine if caregiver should be alerted."""
-        # High cognitive risk
-        if cognitive_risk > 0.7:
+        if cognitive_risk > 0.7 or confusion or memory_issue:
             return True
-        
-        # Confusion or memory issues detected
-        if confusion or memory_issue:
-            return True
-        
-        # Check if reminder is critical (medication, appointment)
-        if reminder_context:
-            priority = reminder_context.get('priority', 'medium')
-            category = reminder_context.get('category', 'general')
-            
-            # Critical reminders with any issues
-            if priority == 'critical' and cognitive_risk > 0.5:
-                return True
-            
-            # Medication reminders with confusion
-            if category == 'medication' and (confusion or cognitive_risk > 0.6):
-                return True
-        
-        return False
+        if not reminder_context:
+            return False
+        priority = reminder_context.get('priority', 'medium')
+        category = reminder_context.get('category', 'general')
+        return self._context_requires_alert(priority, category, cognitive_risk, confusion)
 
 
 def test_reminder_analyzer():
