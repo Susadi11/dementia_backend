@@ -18,9 +18,7 @@ import transformers.generation.utils
 
 logger = logging.getLogger(__name__)
 
-# --- MONKEY PATCH FOR MPS COMPATIBILITY ---
-# Fixes "IndexError: tuple index out of range" in isin_mps_friendly on Apple Silicon
-# when special tokens are scalar tensors (0-d).
+# Fix MPS scalar tensor index error
 def isin_mps_friendly_patched(elements, test_elements):
     if test_elements.ndim == 0:
         test_elements = test_elements.unsqueeze(0)
@@ -31,8 +29,6 @@ def isin_mps_friendly_patched(elements, test_elements):
 transformers.pytorch_utils.isin_mps_friendly = isin_mps_friendly_patched
 if hasattr(transformers.generation.utils, "isin_mps_friendly"):
     transformers.generation.utils.isin_mps_friendly = isin_mps_friendly_patched
-logger.info("🔧 Applied MPS compatibility patch for transformers library")
-# ------------------------------------------
 
 
 class DementiaChatbot:
@@ -46,6 +42,7 @@ class DementiaChatbot:
         loader = get_model_loader()
         llama_model_info = loader.get_model_info("llama_3_2_3b_dementia_care")
 
+        # Load model paths from registry or defaults
         if llama_model_info and llama_model_info.get("model_source") == "huggingface":
             registry_base_model = llama_model_info.get("base_model", "meta-llama/Llama-3.2-3B-Instruct")
             registry_adapter = llama_model_info.get("lora_adapter", "susadi/hale-empathy-3b")
@@ -53,10 +50,11 @@ class DementiaChatbot:
             registry_base_model = "meta-llama/Llama-3.2-3B-Instruct"
             registry_adapter = "susadi/hale-empathy-3b"
 
-        # Priority: passed args > env vars > registry > hardcoded defaults
+        # Args override env vars then registry
         self.base_model_name = base_model_name or os.getenv("LLAMA_BASE_MODEL", registry_base_model)
         self.lora_adapter_path = lora_adapter_path or os.getenv("LLAMA_LORA_ADAPTER", registry_adapter)
 
+        # Auto-detect best available compute device
         if device is None:
             if torch.cuda.is_available():
                 self.device = "cuda"
@@ -73,6 +71,7 @@ class DementiaChatbot:
         self.tokenizer = None
         self.conversation_history: Dict[str, list] = {}
 
+        # Initialize NLP engine for emotion context
         try:
             logger.info("Initializing NLP Engine for intelligent prompting...")
             self.nlp_engine = NLPEngine(
@@ -91,20 +90,18 @@ class DementiaChatbot:
     def _load_model(self):
         try:
             hf_token = os.getenv("LLAMA_HF_TOKEN")
-            if hf_token:
-                logger.info("HuggingFace token found - can access private models")
 
+            # Load tokenizer and set pad token
             logger.info(f"Loading base model: {self.base_model_name}")
-
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.base_model_name,
                 trust_remote_code=True,
                 token=hf_token
             )
-
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
+            # Load base LLaMA model weights
             base_model = AutoModelForCausalLM.from_pretrained(
                 self.base_model_name,
                 torch_dtype=torch.float16 if self.device in ["cuda", "mps"] else torch.bfloat16,
@@ -113,6 +110,7 @@ class DementiaChatbot:
                 token=hf_token
             )
 
+            # Apply dementia care LoRA adapter
             logger.info(f"Loading LoRA adapter from: {self.lora_adapter_path}")
             try:
                 self.model = PeftModel.from_pretrained(
@@ -126,10 +124,9 @@ class DementiaChatbot:
                 logger.warning("Using base model without LoRA")
                 self.model = base_model
 
-            # Only needed when not using device_map="auto" (cuda case handles placement itself)
+            # Move to device; cuda handles placement itself
             if self.device != "cuda":
                 self.model = self.model.to(self.device)
-
             self.model.eval()
 
             logger.info("[SUCCESS] Chatbot model loaded successfully!")
@@ -151,11 +148,10 @@ class DementiaChatbot:
         try:
             if session_id is None:
                 session_id = f"{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
             if session_id not in self.conversation_history:
                 self.conversation_history[session_id] = []
 
-            # Cap tokens based on message type to keep responses concise
+            # Cap token limit by message type
             msg_lower = user_message.lower().strip()
             msg_word_count = len(msg_lower.split())
             if msg_word_count <= 3:
@@ -165,6 +161,7 @@ class DementiaChatbot:
             else:
                 max_tokens = min(max_tokens, 80)
 
+            # Build prompt with recent session history
             if use_history and self.conversation_history[session_id]:
                 recent_history = self.conversation_history[session_id][-10:]
                 context_messages = recent_history + [user_message]
@@ -182,12 +179,13 @@ class DementiaChatbot:
             pad_token_id = self.tokenizer.pad_token_id
             eos_token_id = self.tokenizer.eos_token_id
 
-            # generate() can return list/tuple token IDs depending on config
+            # Flatten token IDs returned as list
             if isinstance(pad_token_id, (list, tuple)):
                 pad_token_id = pad_token_id[0] if len(pad_token_id) > 0 else None
             if isinstance(eos_token_id, (list, tuple)):
                 eos_token_id = eos_token_id[0] if len(eos_token_id) > 0 else None
 
+            # Run model inference without gradient
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
@@ -199,6 +197,7 @@ class DementiaChatbot:
                     eos_token_id=eos_token_id,
                 )
 
+            # Decode generated token ids to text
             if isinstance(outputs, tuple):
                 generated_ids = outputs[0][0]
             elif hasattr(outputs, 'sequences'):
@@ -218,6 +217,7 @@ class DementiaChatbot:
 
             response_text = self._clean_response(response_text)
 
+            # Save message and response to history
             self.conversation_history[session_id].append(user_message)
             self.conversation_history[session_id].append(response_text)
 
@@ -256,9 +256,11 @@ class DementiaChatbot:
 
         msg_lower = user_message.lower().strip()
 
+        # Check if first message in session
         if session_id not in self.conversation_history or len(self.conversation_history[session_id]) == 0:
             context["is_first_message"] = True
 
+        # Detect greeting patterns in message
         greeting_patterns = [
             r'\b(hi|hello|hey|good morning|good afternoon|good evening|greetings)\b',
             r'^(hi|hello|hey)[\s!,.]',
@@ -266,14 +268,17 @@ class DementiaChatbot:
         if any(re.search(pattern, msg_lower) for pattern in greeting_patterns):
             context["is_greeting"] = True
 
+        # Detect question via keywords or punctuation
         if '?' in user_message or any(msg_lower.startswith(q) for q in
             ['what', 'where', 'when', 'who', 'why', 'how', 'can', 'could', 'would', 'should', 'is', 'are', 'do', 'does']):
             context["is_question"] = True
 
+        # Detect request for list-style answer
         list_keywords = ['list', 'steps', 'how to', 'ways to', 'options', 'things', 'items', 'bullet']
         if any(keyword in msg_lower for keyword in list_keywords):
             context["wants_list"] = True
 
+        # Inject real datetime for time questions
         datetime_keywords = [
             'what time', 'what day', 'what date', 'what is the time', 'what is the date',
             'what\'s the time', 'what\'s the date', 'time is it', 'date is it',
@@ -285,6 +290,7 @@ class DementiaChatbot:
             now = datetime.now()
             context["current_datetime"] = now.strftime("%A, %B %d, %Y at %I:%M %p")
 
+        # Detect confusion or disorientation signals
         confusion_keywords = [
             "forget", "can't remember", "don't remember", "confused", "lost",
             "where am i", "what day", "don't know", "not sure", "unclear"
@@ -292,6 +298,7 @@ class DementiaChatbot:
         if any(keyword in msg_lower for keyword in confusion_keywords):
             context["confusion"] = True
 
+        # Use NLP engine to detect emotion
         if self.nlp_engine:
             try:
                 analysis = self.nlp_engine.analyze(user_message)
@@ -309,33 +316,35 @@ class DementiaChatbot:
         context = self._analyze_user_context(user_message, session_id or "default")
         system_prompt = self._build_adaptive_system_prompt(context, user_message)
 
+        # Format as LLaMA chat template
         if len(messages) == 1:
             prompt = f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|>"
             prompt += f"<|start_header_id|>user<|end_header_id|>\n\n{messages[0]}<|eot_id|>"
             prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n"
         else:
             prompt = f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|>"
-
             for i, msg in enumerate(messages):
                 if i % 2 == 0:
                     prompt += f"<|start_header_id|>user<|end_header_id|>\n\n{msg}<|eot_id|>"
                 else:
                     prompt += f"<|start_header_id|>assistant<|end_header_id|>\n\n{msg}<|eot_id|>"
-
             if len(messages) % 2 == 1:
                 prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n"
 
         return prompt
 
     def _build_adaptive_system_prompt(self, context: Dict[str, Any], user_message: str) -> str:
+        # Add self-introduction on first greeting only
         introduction = ""
         if context["is_greeting"] and context["is_first_message"]:
             introduction = "\n- This is the first message. Introduce yourself as 'Hale', a helpful assistant here to support them."
 
+        # Inject real datetime for date/time questions
         datetime_info = ""
         if context["asking_datetime"] and context["current_datetime"]:
             datetime_info = f"\n\nCURRENT DATE AND TIME: {context['current_datetime']}\n- The user is asking about the date or time. Provide this information clearly."
 
+        # Add gentle guidance for confused users
         confusion_guidance = ""
         if context["confusion"]:
             confusion_guidance = (
@@ -392,6 +401,7 @@ Context signals (for guidance only, not to be mentioned):
     def _extract_response(self, full_response: str, prompt: str) -> str:
         assistant_start = "<|start_header_id|>assistant<|end_header_id|>"
 
+        # Extract text after last assistant header
         if assistant_start in full_response:
             parts = full_response.split(assistant_start)
             if len(parts) > 1:
@@ -412,23 +422,21 @@ Context signals (for guidance only, not to be mentioned):
         if not response:
             return response
 
-        # Strip self-introduction the fine-tuned model prepends on every response
+        # Remove self-intro prepended by fine-tuned model
         response = re.sub(
             r'^I\s+am\s+Hale[,.]?\s+a\s+friendly\s+AI\s+(care\s+)?companion\s+for\s+elderly\s+individuals[,.]?\s*',
             '', response, flags=re.IGNORECASE
         )
         response = response.strip()
 
-        # Phone numbers
+        # Remove phone numbers, URLs, emails
         response = re.sub(r'\b\d{1,2}[-.]?\d{3}[-.]?\d{3}[-.]?\d{4}\b', '', response)
         response = re.sub(r'\b1-\d{3}-\d{3}-\d{4}\b', '', response)
-
-        # URLs and emails
         response = re.sub(r'https?://\S+', '', response)
         response = re.sub(r'www\.\S+', '', response)
         response = re.sub(r'\S+@\S+\.\S+', '', response)
 
-        # Therapist/counselor identity claims (training data leakage)
+        # Remove therapist identity claims from training leakage
         identity_patterns = [
             r"I[' ]?a?m a (licensed|certified|professional|registered)[\w\s]*?(counselor|therapist|psychologist|social worker|clinician)[\w\s,]*?\.",
             r"I have (a |an )?(Master'?s?|Bachelor'?s?|PhD|doctorate)[\w\s]*?(degree|in)[\w\s,]*?\.",
@@ -442,7 +450,7 @@ Context signals (for guidance only, not to be mentioned):
         for pattern in identity_patterns:
             response = re.sub(pattern, '', response, flags=re.IGNORECASE)
 
-        # Helpline/organization references
+        # Remove helpline and organization references
         helpline_patterns = [
             r"(call|contact|reach out to)[\w\s]*?(NAMI|National Alliance|Suicide Prevention|Crisis|Helpline|Hotline)[\w\s,().\d-]*?\.",
             r"(NAMI|National Alliance on Mental)[\w\s,().\d-]*?\.",
@@ -455,12 +463,13 @@ Context signals (for guidance only, not to be mentioned):
         response = re.sub(r'\.\s*\.', '.', response)
         response = response.strip()
 
+        # Trim to last complete sentence
         if response and response[-1] not in '.!?':
             last_period = max(response.rfind('.'), response.rfind('!'), response.rfind('?'))
             if last_period > 20:
                 response = response[:last_period + 1]
 
-        # False memory claims — phrases implying the bot remembers the user's past
+        # Remove false memory claims from model output
         false_memory_patterns = [
             r"let'?s\s+try\s+to\s+remember\b[^.!?]*[.!?]?",
             r"let\s+me\s+help\s+you\s+remember\b[^.!?]*[.!?]?",
@@ -490,10 +499,12 @@ Context signals (for guidance only, not to be mentioned):
     def _check_safety(self, response: str, user_message: str) -> Optional[list]:
         warnings = []
 
+        # Flag memory-related user concerns
         memory_keywords = ["forget", "can't remember", "lost", "confused", "where am i"]
         if any(keyword in user_message.lower() for keyword in memory_keywords):
             warnings.append("memory_concern_detected")
 
+        # Flag potential user distress signals
         distress_keywords = ["help", "scared", "alone", "emergency"]
         if any(keyword in user_message.lower() for keyword in distress_keywords):
             warnings.append("potential_distress")
@@ -516,9 +527,8 @@ _chatbot_instance: Optional[DementiaChatbot] = None
 
 def get_chatbot() -> DementiaChatbot:
     global _chatbot_instance
-
+    # Return singleton, create on first call
     if _chatbot_instance is None:
         logger.info("Initializing chatbot for the first time...")
         _chatbot_instance = DementiaChatbot()
-
     return _chatbot_instance

@@ -11,9 +11,7 @@ from pathlib import Path
 from typing import Optional, Dict, List
 import logging
 
-# ============================================================================
 # FIX SSL CERTIFICATE ISSUES (Must be BEFORE HuggingFace imports)
-# ============================================================================
 try:
     import certifi
     os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
@@ -23,9 +21,7 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
-# ============================================================================
 # Global Model Storage
-# ============================================================================
 _MODELS = {
     "lstm_model": None,
     "risk_classifier": None,
@@ -36,16 +32,12 @@ _MODELS = {
 
 _MODEL_LOADED = False
 
-# ============================================================================
 # Path Configuration
-# ============================================================================
 BASE_DIR = Path(__file__).parent.parent.parent.parent  # dementia_backend/
 LSTM_MODEL_DIR = BASE_DIR / "src" / "models" / "game" / "lstm_model"
 RISK_CLASSIFIER_DIR = BASE_DIR / "src" / "models" / "game" / "risk_classifier"
 
-# ============================================================================
 # Hugging Face Repository IDs
-# ============================================================================
 HF_LSTM_REPO = "vlakvindu/Dementia_LSTM_Model"
 HF_RISK_REPO = "vlakvindu/Dementia_Risk_Clasification_model"
 
@@ -74,9 +66,7 @@ def _download_from_hf(repo_id: str, filename: str, local_dir: Path) -> Optional[
         return None
 
 
-# ============================================================================
 # LSTM Model Loading
-# ============================================================================
 def load_lstm_model():
     """
     Load LSTM model for temporal trend analysis.
@@ -202,9 +192,7 @@ def load_label_encoder():
         logger.error(f"✗ Failed to load label encoder from HuggingFace: {e}")
         return None
 
-# ============================================================================
 # Load All Models (Call at Startup)
-# ============================================================================
 def load_all_models():
     """
     Load all models from HuggingFace only (at startup).
@@ -264,9 +252,7 @@ def load_all_models():
 
     logger.info("=" * 70)
 
-# ============================================================================
 # Getter Functions (Use in Services)
-# ============================================================================
 def get_lstm_model():
     """Get loaded LSTM model"""
     if not _MODEL_LOADED:
@@ -297,38 +283,18 @@ def get_label_encoder():
         load_all_models()
     return _MODELS["label_encoder"]
 
-# ============================================================================
-# Dummy Models (Fallback for Testing Without Trained Models)
-# ============================================================================
-class DummyLSTM:
-    """Dummy LSTM that returns random decline score"""
-    def predict(self, X, **kwargs):
-        return np.random.rand(X.shape[0], 1) * 0.3  # 0-0.3 decline score
-
-class DummyRiskClassifier:
-    """Dummy classifier that returns random risk"""
-    def predict_proba(self, X):
-        # Returns [prob_low, prob_medium, prob_high]
-        probs = np.random.dirichlet([2, 2, 1], size=X.shape[0])
-        return probs
-    
-    def predict(self, X):
-        return np.random.choice([0, 1, 2], size=X.shape[0])  # 0=LOW, 1=MED, 2=HIGH
-
 def get_lstm_model_safe():
-    """Get LSTM model — returns DummyLSTM if HuggingFace download failed.
-
-    The LSTM score is a *supporting* signal for the risk classifier; a dummy
-    value (0.0 – 0.3) is preferable to crashing the entire game session.
-    The risk classifier is the authoritative output and still fails hard.
+    """Get LSTM model — requires trained model from HuggingFace.
+    
+    No fallback models for demo — using only your trained models.
     """
     model = get_lstm_model()
     if model is None:
-        logger.warning(
-            "LSTM model not loaded (HuggingFace may be unreachable). "
-            "Falling back to DummyLSTM — LSTM decline score will be approximate."
+        raise RuntimeError(
+            "LSTM model failed to load from HuggingFace (vlakvindu/Dementia_LSTM_Model). "
+            "Check your internet connection and try again. "
+            "If the problem persists, verify the repository is public and hf_hub_download works."
         )
-        return DummyLSTM()
     return model
 
 def get_risk_classifier_safe():

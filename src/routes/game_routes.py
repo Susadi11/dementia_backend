@@ -28,9 +28,7 @@ from src.utils.auth import verify_token
 router = APIRouter(prefix="/game", tags=["Game"])
 logger = logging.getLogger(__name__)
 
-# ============================================================================
 # Helper: Look up assigned caregiver ID for a user
-# ============================================================================
 async def lookup_caregiver_id_for_user(userId: str) -> Optional[str]:
     """
     Get the caregiver_id assigned to a user by reading it directly from
@@ -63,38 +61,12 @@ async def verify_caregiver_linked(caregiver_id: str, user_id: str):
         )
 
 
-# ============================================================================
 # POST /game/session - Process Game Session
-# ============================================================================
 @router.post("/session", response_model=GameSessionResponse, status_code=status.HTTP_201_CREATED)
 async def submit_game_session(
     request: GameSessionRequest,
     current_user: dict = Depends(get_current_user)
 ):
-    """
-    Process a completed game session and return risk assessment.
-    Requires a valid user JWT token (Authorization: Bearer <token>).
-    The userId is taken from the token — not from the request body.
-
-    **Workflow:**
-    1. Extract real userId from JWT token
-    2. Load user's motor baseline
-    3. Compute cognitive features (SAC, IES, motor-adjusted RT)
-    4. Fetch last N sessions for temporal analysis
-    5. Run LSTM model for decline detection
-    6. Run risk classifier for risk level
-    7. Store results in database (with caregiverId)
-    8. Return features + risk prediction
-
-    **Input:**
-    - `trials`: List of trial-level data (preferred) OR
-    - `summary`: Aggregated session metrics (fallback)
-    - `caregiverId`: Optional — auto-looked-up from DB if not provided
-
-    **Output:**
-    - Session features (SAC, IES, accuracy, etc.)
-    - Risk prediction (LOW/MEDIUM/HIGH + probabilities)
-    """
     try:
         # Always use the authenticated user's ID from the JWT token
         user_id = current_user["user_id"]
@@ -165,11 +137,6 @@ async def submit_game_session(
 async def get_motor_baseline_from_token(
     authorization: Optional[str] = Header(None)
 ):
-    """
-    Get the authenticated user's latest motor baseline using the JWT token.
-    No userId needed in the URL — identity is taken from the Bearer token.
-    Returns {"motor_baseline": null} gracefully if no valid token is provided.
-    """
     # If no token provided (e.g. trailing-slash redirect stripped the header), return empty
     if not authorization:
         return {"userId": None, "motor_baseline": None, "message": "No auth token provided"}
@@ -209,9 +176,7 @@ async def get_motor_baseline_from_token(
         raise HTTPException(status_code=500, detail="Failed to fetch baseline")
 
 
-# ============================================================================
 # GET /game/motor-baseline/{userId}  (kept for backward compatibility)
-# ============================================================================
 @router.get("/motor-baseline/{userId}")
 async def get_motor_baseline(userId: str):
     """
@@ -239,32 +204,11 @@ async def get_motor_baseline(userId: str):
         raise HTTPException(status_code=500, detail="Failed to fetch baseline")
 
 
-# ============================================================================
+# ===========================================================================
 # POST /game/calibration - Motor Baseline Calibration
-# ============================================================================
 @router.post("/calibration", response_model=CalibrationResponse)
 async def calibrate_motor_baseline(request: CalibrationRequest):
-    """
-    Calibrate user's motor baseline using simple reaction time task.
-    
-    **Instructions for Frontend:**
-    1. Show a simple stimulus (e.g., circle appears)
-    2. User taps as quickly as possible
-    3. Repeat 5-10 times
-    4. Send all tap times to this endpoint
-    
-    **Example:**
-    ```json
-    {
-      "userId": "user123",
-      "tapTimes": [0.28, 0.31, 0.29, 0.30, 0.32, 0.27]
-    }
-    ```
-    
-    **Output:**
-    - Motor baseline (median of tap times)
-    - Stored in database for future sessions
-    """
+   
     try:
         calibrations = Database.get_collection("calibrations")
         
@@ -298,16 +242,6 @@ async def calibrate_motor_baseline(request: CalibrationRequest):
 # ============================================================================
 @router.get("/history/{userId}", response_model=SessionHistoryResponse)
 async def get_session_history(userId: str, limit: int = 20):
-    """
-    Retrieve user's session history (for dashboard/visualization).
-    
-    **Query Parameters:**
-    - `limit`: Number of recent sessions to return (default: 20)
-    
-    **Output:**
-    - List of sessions with features and risk levels
-    - Sorted by timestamp (newest first)
-    """
     try:
         game_sessions = Database.get_collection("game_sessions")
         
@@ -367,9 +301,7 @@ async def get_session_history(userId: str, limit: int = 20):
         logger.error(f"Error fetching history: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch history")
 
-# ============================================================================
 # GET /game/stats/{userId} - Get User Statistics
-# ============================================================================
 @router.get("/stats/{userId}", response_model=UserStatsResponse)
 async def get_user_stats(userId: str):
     """
@@ -434,9 +366,7 @@ async def get_user_stats(userId: str):
         logger.error(f"Error computing stats: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to compute statistics")
 
-# ============================================================================
 # DELETE /game/session/{sessionId} - Delete Session (Optional)
-# ============================================================================
 @router.delete("/session/{sessionId}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_session(sessionId: str):
     """
@@ -457,9 +387,7 @@ async def delete_session(sessionId: str):
         logger.error(f"Error deleting session: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to delete session")
 
-# ============================================================================
 # GET /game/test-model - Test model prediction
-# ============================================================================
 @router.get("/test-model")
 async def test_model_prediction():
     """
@@ -477,8 +405,7 @@ async def test_model_prediction():
         
         model_info = {
             "model_type": risk_model.__class__.__name__ if risk_model else "None",
-            "scaler_type": scaler.__class__.__name__ if scaler else "None",
-            "is_dummy": risk_model.__class__.__name__ == "DummyRiskClassifier" if risk_model else True
+            "scaler_type": scaler.__class__.__name__ if scaler else "None"
         }
         
         # Simulate features from a 6% accuracy game

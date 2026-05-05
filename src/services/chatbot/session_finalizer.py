@@ -1,13 +1,6 @@
-"""
-Session Finalizer Background Job
-
-Automatically finalizes sessions when their time windows end or after inactivity.
-Runs every hour to check for sessions that need finalization.
-"""
-
 import asyncio
-from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from datetime import datetime
+from typing import Dict, Any
 import logging
 
 from src.database import Database
@@ -18,17 +11,9 @@ logger = logging.getLogger(__name__)
 
 
 class SessionFinalizer:
-    """
-    Background service to finalize active sessions.
-
-    Finalization triggers:
-    1. Time window has ended (e.g., morning ends at 12:00)
-    2. 2+ hours of inactivity
-    3. End of day (midnight)
-    """
 
     def __init__(self):
-        """Initialize session finalizer"""
+        # Initialize scoring engine and running flag
         self.scoring_engine = ScoringEngine()
         self.is_running = False
 
@@ -37,16 +22,6 @@ class SessionFinalizer:
         session: Dict[str, Any],
         current_time: datetime
     ) -> tuple[bool, str]:
-        """
-        Determine if a session should be finalized.
-
-        Args:
-            session: Session document
-            current_time: Current datetime
-
-        Returns:
-            Tuple of (should_finalize, reason)
-        """
         time_window = session.get("time_window")
         last_message_at = session.get("last_message_at")
         session_date = session.get("date")
@@ -54,26 +29,23 @@ class SessionFinalizer:
         current_hour = current_time.hour
         current_date = current_time.strftime("%Y-%m-%d")
 
-        # Reason 1: Time window has ended
+        # Finalize when time window boundary is passed
         if time_window == "morning" and current_hour >= 12:
             return True, "Morning window ended (12:00 PM)"
-
         elif time_window == "afternoon" and current_hour >= 16:
             return True, "Afternoon window ended (4:00 PM)"
-
         elif time_window == "evening" and current_hour >= 20:
             return True, "Evening window ended (8:00 PM)"
-
         elif time_window == "night" and current_hour >= 6:
             return True, "Night window ended (6:00 AM)"
 
-        # Reason 2: 2+ hours of inactivity
+        # Finalize after 2+ hours of inactivity
         if last_message_at:
             inactivity_hours = (current_time - last_message_at).total_seconds() / 3600
             if inactivity_hours >= 2:
                 return True, f"Inactivity timeout ({inactivity_hours:.1f} hours)"
 
-        # Reason 3: Next day has started
+        # Finalize when next day has started
         if session_date != current_date:
             return True, "Next day started"
 
@@ -84,21 +56,12 @@ class SessionFinalizer:
         db,
         session: Dict[str, Any]
     ) -> bool:
-        """
-        Finalize a session by calculating final scores.
-
-        Args:
-            db: MongoDB database instance
-            session: Session document
-
-        Returns:
-            True if successful
-        """
         try:
             session_id = session.get("session_id")
             conversation_context = session.get("conversation_context", [])
 
             if not conversation_context:
+                # No messages — finalize with zero scores
                 logger.warning(f"Session {session_id} has no messages, finalizing with score 0")
                 final_scores = {f"p{i}_" + name: 0 for i, name in enumerate([
                     "semantic_incoherence", "repeated_questions", "self_correction",
@@ -108,11 +71,10 @@ class SessionFinalizer:
                 ], 1)}
                 session_raw_score = 0
             else:
-                # Combine all messages for final analysis
+                # Combine all messages and run scoring engine
                 all_text = " ".join(conversation_context)
                 last_message_time = session.get("last_message_at") or datetime.now()
 
-                # Calculate final scores
                 self.scoring_engine.conversation_history = conversation_context
                 analysis_result = self.scoring_engine.analyze_session(
                     text=all_text,
@@ -124,6 +86,7 @@ class SessionFinalizer:
                 scores = analysis_result["scores"]
                 session_raw_score = analysis_result["session_raw_score"]
 
+                # Map all 12 parameter scores
                 final_scores = {
                     "p1_semantic_incoherence": scores["p1_semantic_incoherence"],
                     "p2_repeated_questions": scores["p2_repeated_questions"],
@@ -139,7 +102,7 @@ class SessionFinalizer:
                     "p12_topic_maintenance": scores["p12_topic_maintenance"]
                 }
 
-            # Finalize session in database
+            # Save finalized scores to database
             success = await DetectionSessionDB.finalize_session(
                 db=db,
                 session_id=session_id,
@@ -161,10 +124,7 @@ class SessionFinalizer:
             return False
 
     async def run_finalization_check(self):
-        """
-        Check all active sessions and finalize those that meet criteria.
-        This should be called periodically (e.g., every hour).
-        """
+        # Check all active sessions for finalization
         try:
             db = Database.db
             if db is None:
@@ -174,7 +134,6 @@ class SessionFinalizer:
             current_time = datetime.now()
             logger.info(f"Running session finalization check at {current_time}")
 
-            # Get all active sessions
             active_sessions = await DetectionSessionDB.get_active_sessions(db)
 
             if not active_sessions:
@@ -186,8 +145,6 @@ class SessionFinalizer:
             finalized_count = 0
             for session in active_sessions:
                 session_id = session.get("session_id")
-
-                # Check if should finalize
                 should_finalize, reason = self.should_finalize_session(session, current_time)
 
                 if should_finalize:
@@ -202,31 +159,23 @@ class SessionFinalizer:
             logger.error(f"Error in finalization check: {e}")
 
     async def start_background_task(self, interval_minutes: int = 60):
-        """
-        Start background task that runs finalization checks periodically.
-
-        Args:
-            interval_minutes: How often to run checks (default: 60 minutes)
-        """
+        # Run finalization checks on set interval
         self.is_running = True
         logger.info(f"Starting session finalizer (runs every {interval_minutes} minutes)")
 
         while self.is_running:
             try:
                 await self.run_finalization_check()
-
-                # Wait for next interval
                 await asyncio.sleep(interval_minutes * 60)
-
             except Exception as e:
                 logger.error(f"Error in background task: {e}")
-                await asyncio.sleep(60)  # Wait 1 minute before retrying
+                await asyncio.sleep(60)
 
     def stop_background_task(self):
-        """Stop the background task"""
+        # Signal background loop to stop
         logger.info("Stopping session finalizer")
         self.is_running = False
 
 
-# Global instance
+# Global singleton instance
 session_finalizer = SessionFinalizer()

@@ -43,9 +43,7 @@ from src.database import Database
 from src.services.chatbot import session_finalizer
 from src.features.reminder_system.realtime_engine import RealTimeReminderEngine
 
-# ============================================================================
-# Game Component Imports (Gamified cognitive assessment features)
-# ============================================================================
+
 # Game Component Imports
 from src.models.game.model_registry import load_all_models
 

@@ -1,13 +1,3 @@
-"""
-Voice Processing Module
-
-Handles audio file processing with:
-- Automatic Speech Recognition (ASR) using OpenAI Whisper
-- Noise filtering and speech enhancement
-- Audio preprocessing and validation
-- Transcript generation and storage
-"""
-
 import os
 import logging
 from pathlib import Path
@@ -18,6 +8,7 @@ import soundfile as sf
 import whisper
 from datetime import datetime
 
+# Optional noise reduction library
 try:
     import noisereduce as nr
 except ImportError:
@@ -29,30 +20,15 @@ logger = logging.getLogger(__name__)
 
 
 class VoiceProcessor:
-    """
-    Main voice processing class handling audio input and transcription.
-
-    Implements:
-    - Audio upload and validation
-    - OpenAI Whisper ASR
-    - Noise filtering and enhancement
-    - Transcript generation and storage
-    """
 
     def __init__(self, model_size: str = "base"):
-        """
-        Initialize voice processor.
-
-        Args:
-            model_size: Whisper model size ("tiny", "base", "small", "medium", "large")
-                       Default: "base" (good balance between speed and accuracy)
-        """
+        # Store config values for audio processing
         self.model_size = model_size
-        self.sample_rate = config.features.audio_sample_rate  # 16kHz
+        self.sample_rate = config.features.audio_sample_rate
         self.max_audio_length = config.processing.max_audio_length
         self.supported_formats = config.processing.supported_audio_formats
 
-        # Initialize Whisper model
+        # Load Whisper ASR model
         logger.info(f"Loading Whisper model ({model_size})...")
         try:
             self.whisper_model = whisper.load_model(model_size)
@@ -61,6 +37,7 @@ class VoiceProcessor:
             logger.error(f"Failed to load Whisper model: {str(e)}")
             raise
 
+        # Create output directories for audio and transcripts
         self.audio_dir = config.paths.data_dir / "audio_uploads"
         self.audio_dir.mkdir(parents=True, exist_ok=True)
 
@@ -68,7 +45,7 @@ class VoiceProcessor:
         self.transcripts_dir.mkdir(parents=True, exist_ok=True)
 
     def validate_audio_file(self, file_path: str) -> Tuple[bool, str]:
-        """Validate audio file format and properties."""
+        # Check format, size, and duration limits
         try:
             if not os.path.exists(file_path):
                 return False, "Audio file not found"
@@ -97,12 +74,13 @@ class VoiceProcessor:
             return False, f"Error validating audio: {str(e)}"
 
     def enhance_audio(self, audio: np.ndarray, sr: int) -> np.ndarray:
-        """Enhance audio quality using noise reduction and normalization."""
+        # Apply noise reduction then normalize volume
         try:
             if nr is not None:
                 logger.info("Applying noise reduction...")
                 audio = nr.reduce_noise(y=audio, sr=sr)
 
+            # Normalize to target -20dB
             logger.info("Normalizing audio volume...")
             max_val = np.max(np.abs(audio))
             if max_val > 0:
@@ -112,6 +90,7 @@ class VoiceProcessor:
                 gain_linear = 10 ** (gain_db / 20)
                 audio = audio * gain_linear
 
+            # Soft-clip to prevent distortion
             audio = np.tanh(audio)
 
             return audio
@@ -121,17 +100,12 @@ class VoiceProcessor:
             return audio
 
     def preprocess_audio(self, file_path: str) -> Tuple[np.ndarray, int]:
-        """Load and preprocess audio file (16kHz mono, enhanced, normalized)."""
+        # Load as 16kHz mono then enhance
         logger.info(f"Loading audio from {file_path}...")
-
         audio, sr = librosa.load(file_path, sr=self.sample_rate, mono=True)
-
         logger.info(f"Audio loaded: {len(audio)/sr:.2f}s at {sr}Hz")
-
         audio = self.enhance_audio(audio, sr)
-
         logger.info("Audio preprocessing complete")
-
         return audio, sr
 
     def transcribe_audio(
@@ -140,7 +114,7 @@ class VoiceProcessor:
         language: str = "en",
         verbose: bool = False
     ) -> Dict:
-        """Transcribe audio using OpenAI Whisper with validation and enhancement."""
+        # Validate, preprocess, run Whisper, return transcript
         try:
             is_valid, message = self.validate_audio_file(file_path)
             if not is_valid:
@@ -160,8 +134,7 @@ class VoiceProcessor:
             y, sr = librosa.load(file_path, sr=self.sample_rate, mono=True)
             duration = librosa.get_duration(y=y, sr=sr)
 
-            audio, sr = self.preprocess_audio(file_path)
-
+            # Run Whisper with low temperature for accuracy
             logger.info("Running Whisper ASR...")
             result = self.whisper_model.transcribe(
                 file_path,
@@ -174,6 +147,7 @@ class VoiceProcessor:
             segments = result.get('segments', [])
             detected_language = result.get('language', language)
 
+            # Average segment-level confidence scores
             confidences = []
             for segment in segments:
                 if 'confidence' in segment:
@@ -212,7 +186,7 @@ class VoiceProcessor:
         user_id: str,
         metadata: Optional[Dict] = None
     ) -> Tuple[bool, str]:
-        """Save transcript to file with metadata."""
+        # Write transcript and metadata to text file
         try:
             filename = f"{user_id}_{session_id}_{datetime.now().isoformat()}.txt"
             file_path = self.transcripts_dir / filename
@@ -243,11 +217,10 @@ class VoiceProcessor:
         user_id: str,
         original_format: str = "wav"
     ) -> Tuple[bool, str]:
-        """Save processed audio to file."""
+        # Write processed audio array to WAV file
         try:
             filename = f"{user_id}_{session_id}_{datetime.now().isoformat()}.{original_format}"
             file_path = self.audio_dir / filename
-
             sf.write(str(file_path), audio, sr)
             logger.info(f"Audio saved to {file_path}")
             return True, str(file_path)
@@ -263,7 +236,7 @@ class VoiceProcessor:
         session_id: str,
         language: str = "en"
     ) -> Dict:
-        """Complete pipeline: validate, transcribe, enhance, and store audio."""
+        # Full pipeline: transcribe, enhance, save audio and transcript
         logger.info(f"Starting voice processing for user {user_id}, session {session_id}")
 
         transcription = self.transcribe_audio(file_path, language=language)
@@ -281,6 +254,7 @@ class VoiceProcessor:
             }
 
         try:
+            # Save enhanced audio and generated transcript
             audio, sr = self.preprocess_audio(file_path)
             audio_success, audio_path = self.save_audio(
                 audio, sr, session_id, user_id
@@ -325,11 +299,12 @@ class VoiceProcessor:
             }
 
 
+# Singleton instance
 _voice_processor = None
 
 
 def get_voice_processor(model_size: str = "base") -> VoiceProcessor:
-    """Get or create voice processor singleton instance."""
+    # Return singleton, create on first call
     global _voice_processor
     if _voice_processor is None:
         _voice_processor = VoiceProcessor(model_size=model_size)
