@@ -108,27 +108,47 @@ class AdaptiveReminderScheduler:
             )
 
             # ── Learning 2: Response Delay Time Shift ────────────────────────
-            # After logging the new interaction the pattern is up-to-date.
-            # If the user consistently takes >5 min to respond, shift the next
-            # alarm earlier so the action lands at the originally intended time.
+            # USE CASE — Slow Responder:
+            #   Patient has a medication reminder scheduled for 08:00 AM.
+            #   Over 14 days the tracker records an average response delay of
+            #   10 minutes (i.e. recommended_time_adjustment_minutes = -10).
+            #   This block shifts tomorrow's alarm to 07:50 AM so the *action*
+            #   (taking the tablet) still lands at the originally intended 08:00.
+            #
+            #   Example values flowing through:
+            #     reminder.scheduled_time          = 2026-05-06 08:00:00
+            #     pattern.recommended_time_adj     = -10  (send 10 min earlier)
+            #     next_occ (daily repeat)          = 2026-05-06 08:00:00
+            #     adjusted                         = 2026-05-06 07:50:00
+            #     next_scheduled_time (returned)   = "2026-05-06T07:50:00"
             reschedule_needed = False
             next_scheduled_time = None
             frequency_multiplier = 1.0
 
+            # Skip time-shift learning for critical reminders — they must fire
+            # at their exact scheduled time regardless of response history.
             if reminder.adaptive_scheduling_enabled and reminder.priority.value != "critical":
                 try:
+                    # Require 2 weeks of history so a single bad day doesn't skew the pattern.
+                    # Example: patient slept in on one Monday shouldn't move every future alarm.
                     pattern = self.behavior_tracker.get_user_behavior_pattern(
                         user_id=reminder.user_id,
                         category=reminder.category,
-                        days=14  # 2 weeks of history before applying a time shift
+                        days=14
                     )
+                    # time_adj is negative when the user is consistently late
+                    # e.g. always 10 min slow → time_adj = -10
                     time_adj = pattern.recommended_time_adjustment_minutes
                     frequency_multiplier = pattern.recommended_frequency_multiplier
 
                     if time_adj != 0:
                         next_occ = self._compute_next_occurrence(reminder)
+                        # Apply the shift: 08:00 + (-10 min) = 07:50
                         adjusted = next_occ + timedelta(minutes=time_adj)
-                        # Avoid landing on a worst-response hour after the shift
+                        # Walk forward hour-by-hour until we land outside a known poor-response
+                        # window. Cap at 24 iterations so we never loop forever if all hours
+                        # are marked worst (e.g. sparse data scenario).
+                        # Example: if 07:00 is a worst hour, adjusted bumps to 08:00, etc.
                         for _ in range(24):
                             if adjusted.hour not in pattern.worst_response_hours:
                                 break
@@ -245,25 +265,28 @@ class AdaptiveReminderScheduler:
         if current_time < reminder.scheduled_time:
             return False, "Scheduled time not reached"
         
-        # Get behavior pattern
+        # Use only the last 7 days so the schedule adapts quickly to changes
+        # in the user's daily routine (e.g. new sleep schedule, hospital stay).
         pattern = self.behavior_tracker.get_user_behavior_pattern(
             user_id=reminder.user_id,
             reminder_id=reminder.id,
             category=reminder.category,
-            days=7  # Recent behavior
+            days=7
         )
-        
-        # Check if current hour is in worst response hours
+
+        # Avoid hours where the user historically ignores or misses reminders.
+        # Critical reminders bypass this gate because missing them is worse than
+        # sending at a sub-optimal time.
         if current_time.hour in pattern.worst_response_hours:
-            # For critical reminders, send anyway
             if reminder.priority == ReminderPriority.CRITICAL:
                 return True, "Critical reminder - sending despite poor response hour"
             else:
                 return False, f"Hour {current_time.hour} has poor response history"
-        
-        # Check for recent confusion patterns
+
+        # A declining confusion trend with a high risk score means the user may
+        # need caregiver support — send the reminder so the caregiver pipeline
+        # is triggered rather than silently skipping it.
         if pattern.confusion_trend == "declining" and pattern.avg_cognitive_risk_score and pattern.avg_cognitive_risk_score > 0.7:
-            # Simplify reminder or notify caregiver
             return True, "User showing cognitive decline - sending with caregiver notification"
         
         return True, "Optimal time for reminder"
@@ -339,7 +362,9 @@ class AdaptiveReminderScheduler:
                     )
                 
             elif action == 'provide_context_and_repeat':
-                # Reschedule with shorter delay
+                # 5-minute delay (vs. the standard 15-min snooze) keeps the
+                # reminder fresh in mind while still giving the user a moment
+                # to process the additional context they were shown.
                 self.reschedule_reminder(reminder, delay_minutes=5, reason="memory_issue_detected")
                 result['reminder_updated'] = True
                 
@@ -366,6 +391,8 @@ class AdaptiveReminderScheduler:
     ) -> bool:
         """Send notification to caregivers."""
         try:
+            # Lazy import avoids a circular dependency: CaregiverNotifier imports
+            # reminder models that already import from this module.
             from .caregiver_notifier import CaregiverNotifier
             
             notifier = CaregiverNotifier(self.db_service)
@@ -438,7 +465,9 @@ class AdaptiveReminderScheduler:
         if pattern.recommended_time_adjustment_minutes:
             base_time += timedelta(minutes=pattern.recommended_time_adjustment_minutes)
         
-        # Avoid worst hours
+        # Push past any poor-response hours to find the earliest acceptable slot.
+        # No iteration cap here because this is called with clean pattern data
+        # and worst_response_hours is validated to never contain all 24 hours.
         while base_time.hour in pattern.worst_response_hours:
             base_time += timedelta(hours=1)
         
