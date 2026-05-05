@@ -719,28 +719,37 @@ class RealTimeReminderEngine:
         )
     
     async def _process_adaptive_scheduling(
-        self, 
-        reminder_data: Dict[str, Any], 
+        self,
+        reminder_data: Dict[str, Any],
         interaction: ReminderInteraction
     ):
-        """Process adaptive scheduling based on interaction."""
-        # Update behavior tracker
-        self.behavior_tracker.log_interaction(interaction)
-        
-        # Get updated scheduling recommendations
+        """Process adaptive scheduling based on interaction.
+
+        Note: behavior_tracker.log_interaction is called inside
+        scheduler.process_reminder_response — do not call it here to avoid
+        recording the same interaction twice in the in-memory cache.
+        """
         reminder = self._dict_to_reminder(reminder_data)
         schedule_update = self.scheduler.process_reminder_response(
-            reminder, interaction.response_text, interaction.response_time_seconds
+            reminder=reminder,
+            user_response=interaction.user_response_text or "",
+            response_time_seconds=interaction.response_time_seconds
         )
-        
-        # Update reminder in database if needed
+
+        # Update reminder in database if Learning 2 decided a reschedule is needed
         if schedule_update.get("reschedule_needed"):
             await self.db_service.update_reminder(
                 reminder.id,
                 {
                     "scheduled_time": schedule_update["next_scheduled_time"],
-                    "frequency_multiplier": schedule_update.get("frequency_multiplier", 1.0)
+                    "frequency_multiplier": schedule_update.get("frequency_multiplier", 1.0),
+                    "time_shift_applied_at": datetime.now().isoformat(),
                 }
+            )
+            logger.info(
+                f"Learning 2 applied: reminder {reminder.id} rescheduled to "
+                f"{schedule_update['next_scheduled_time']} "
+                f"(multiplier={schedule_update.get('frequency_multiplier', 1.0):.2f})"
             )
     
     async def _send_caregiver_alerts(

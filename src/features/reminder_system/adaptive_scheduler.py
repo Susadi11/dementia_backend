@@ -106,22 +106,63 @@ class AdaptiveReminderScheduler:
             action_result = self._execute_action(
                 reminder, interaction, analysis
             )
-            
+
+            # ── Learning 2: Response Delay Time Shift ────────────────────────
+            # After logging the new interaction the pattern is up-to-date.
+            # If the user consistently takes >5 min to respond, shift the next
+            # alarm earlier so the action lands at the originally intended time.
+            reschedule_needed = False
+            next_scheduled_time = None
+            frequency_multiplier = 1.0
+
+            if reminder.adaptive_scheduling_enabled and reminder.priority.value != "critical":
+                try:
+                    pattern = self.behavior_tracker.get_user_behavior_pattern(
+                        user_id=reminder.user_id,
+                        category=reminder.category,
+                        days=14  # 2 weeks of history before applying a time shift
+                    )
+                    time_adj = pattern.recommended_time_adjustment_minutes
+                    frequency_multiplier = pattern.recommended_frequency_multiplier
+
+                    if time_adj != 0:
+                        next_occ = self._compute_next_occurrence(reminder)
+                        adjusted = next_occ + timedelta(minutes=time_adj)
+                        # Avoid landing on a worst-response hour after the shift
+                        for _ in range(24):
+                            if adjusted.hour not in pattern.worst_response_hours:
+                                break
+                            adjusted += timedelta(hours=1)
+                        next_scheduled_time = adjusted.isoformat()
+                        reschedule_needed = True
+                        logger.info(
+                            f"Learning 2: reminder {reminder.id} will shift by {time_adj} min "
+                            f"-> next occurrence at {next_scheduled_time}"
+                        )
+                except Exception as le:
+                    logger.warning(f"Learning 2 check failed for reminder {reminder.id}: {le}")
+
             return {
                 'analysis': analysis,
                 'interaction': interaction.dict(),
                 'action_result': action_result,
                 'reminder_updated': action_result.get('reminder_updated', False),
-                'caregiver_notified': action_result.get('caregiver_notified', False)
+                'caregiver_notified': action_result.get('caregiver_notified', False),
+                'reschedule_needed': reschedule_needed,
+                'next_scheduled_time': next_scheduled_time,
+                'frequency_multiplier': frequency_multiplier,
             }
-            
+
         except Exception as e:
             logger.error(f"Error processing reminder response: {e}", exc_info=True)
             return {
                 'error': str(e),
                 'analysis': {},
                 'interaction': {},
-                'action_result': {}
+                'action_result': {},
+                'reschedule_needed': False,
+                'next_scheduled_time': None,
+                'frequency_multiplier': 1.0,
             }
     
     def get_optimal_reminder_schedule(
@@ -430,3 +471,18 @@ class AdaptiveReminderScheduler:
             'worst_hours': [],
             'pattern_stats': {}
         }
+
+    def _compute_next_occurrence(self, reminder: Reminder) -> datetime:
+        """
+        Return the next-occurrence datetime for a recurring reminder.
+        For one-time reminders returns the current scheduled_time so the
+        shift applies to the reminder itself rather than a phantom future slot.
+        """
+        base = reminder.scheduled_time
+        if reminder.repeat_pattern == "daily":
+            return base + timedelta(days=1)
+        elif reminder.repeat_pattern == "weekly":
+            return base + timedelta(weeks=1)
+        elif reminder.repeat_pattern == "custom" and reminder.repeat_interval_minutes:
+            return base + timedelta(minutes=reminder.repeat_interval_minutes)
+        return base
