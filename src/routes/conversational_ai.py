@@ -24,7 +24,7 @@ from src.services.chatbot.crisis_detector import detect_crisis
 router = APIRouter(prefix="/chat", tags=["conversational_ai"])
 logger = logging.getLogger(__name__)
 
-# Initialize detection services
+# Initialize detection and risk services
 scoring_engine = ScoringEngine()
 risk_calculator = WeeklyRiskCalculator()
 
@@ -48,8 +48,7 @@ class ChatResponse(BaseModel):
     timestamp: str = Field(..., description="Response timestamp")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
     safety_warnings: Optional[list] = Field(None, description="Safety warnings if any")
-
-    # 12-Parameter Detection (Automatic)
+    # 12-parameter detection scores attached to every response
     detection: Optional[Dict[str, Any]] = Field(None, description="Automatic dementia detection scores (12 parameters)")
 
 
@@ -57,31 +56,11 @@ class ChatResponse(BaseModel):
              summary="Text Chat",
              description="Send a text message to the dementia care chatbot")
 async def process_text_chat(request: TextQuery) -> ChatResponse:
-    """
-    Process text-based chat message using fine-tuned LLaMA 3.2 1B model.
-
-    The chatbot is trained on DailyDialog dataset and optimized for:
-    - Empathetic conversations with elderly users
-    - Memory-related concerns
-    - Patient and clear responses
-
-    **Example Request:**
-    ```json
-    {
-        "user_id": "elderly-user-001",
-        "message": "I can't remember where I put my glasses",
-        "session_id": "session_123",
-        "max_tokens": 150,
-        "temperature": 0.7
-    }
-    ```
-    """
     try:
         chatbot = get_chatbot()
-
-        # Use 'message' if present, otherwise fall back to 'text'
         user_message = request.message
 
+        # Run LLaMA inference in thread executor
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
@@ -96,7 +75,7 @@ async def process_text_chat(request: TextQuery) -> ChatResponse:
             )
         )
 
-        # ==================== AUTOMATIC 12-PARAMETER DETECTION ====================
+        # Run 12-parameter detection, save to DB
         detection_result = None
         try:
             timestamp = datetime.now()
@@ -106,7 +85,7 @@ async def process_text_chat(request: TextQuery) -> ChatResponse:
 
             db = Database.db
 
-            # Get or create detection session
+            # Get or create detection session for this window
             session = await DetectionSessionDB.get_or_create_session(
                 db=db,
                 session_id=detection_session_id,
@@ -117,15 +96,13 @@ async def process_text_chat(request: TextQuery) -> ChatResponse:
                 timestamp=timestamp
             )
 
-            # Only run detection if session is active
             if session.get("status") == "active":
-                # Append message to session
+                # Append message to session context
                 message_data = {
                     "timestamp": timestamp,
                     "text": user_message,
                     "audio_features": None
                 }
-
                 await DetectionSessionDB.append_message_to_session(
                     db=db,
                     session_id=detection_session_id,
@@ -134,11 +111,11 @@ async def process_text_chat(request: TextQuery) -> ChatResponse:
                     timestamp=timestamp
                 )
 
-                # Get conversation context
+                # Reload session to get updated conversation context
                 session = await DetectionSessionDB.get_session_by_id(db, detection_session_id)
                 conversation_context = session.get("conversation_context", [])
 
-                # Run 12-parameter detection
+                # Score all 12 behavioral parameters
                 analysis_result = scoring_engine.analyze_session(
                     text=user_message,
                     audio_features=None,
@@ -149,7 +126,7 @@ async def process_text_chat(request: TextQuery) -> ChatResponse:
                 scores = analysis_result["scores"]
                 session_raw_score = analysis_result["session_raw_score"]
 
-                # Update session with new scores
+                # Save updated scores to session document
                 update_data = {
                     "p1_semantic_incoherence": scores["p1_semantic_incoherence"],
                     "p2_repeated_questions": scores["p2_repeated_questions"],
@@ -165,10 +142,8 @@ async def process_text_chat(request: TextQuery) -> ChatResponse:
                     "p12_topic_maintenance": scores["p12_topic_maintenance"],
                     "session_raw_score": session_raw_score
                 }
-
                 await DetectionSessionDB.update_session(db, detection_session_id, update_data)
 
-                # Prepare detection result for response
                 detection_result = {
                     "detection_session_id": detection_session_id,
                     "time_window": time_window,
@@ -184,12 +159,10 @@ async def process_text_chat(request: TextQuery) -> ChatResponse:
 
         except Exception as e:
             logger.warning(f"Detection failed (non-critical): {str(e)}")
-            # Detection failure doesn't break the chat
 
-        # Add detection to result
         result["detection"] = detection_result
 
-        # ==================== CRISIS DETECTION ====================
+        # Check for crisis keywords in message
         try:
             is_crisis, matched_phrase = detect_crisis(user_message)
             if is_crisis:
@@ -202,7 +175,6 @@ async def process_text_chat(request: TextQuery) -> ChatResponse:
                 result["safety_warnings"] = (result.get("safety_warnings") or []) + ["crisis_detected"]
         except Exception as e:
             logger.error(f"Crisis detection error (non-critical): {e}")
-        # ==================== END CRISIS DETECTION ====================
 
         return ChatResponse(**result)
 
@@ -222,8 +194,7 @@ class VoiceResponse(BaseModel):
     transcription: str = Field(..., description="Transcribed text from audio")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
     safety_warnings: Optional[list] = Field(None, description="Safety warnings if any")
-
-    # 12-Parameter Detection (Automatic)
+    # 12-parameter detection + raw audio feature values
     detection: Optional[Dict[str, Any]] = Field(None, description="Automatic dementia detection scores (12 parameters)")
     audio_features: Optional[Dict[str, float]] = Field(None, description="Extracted audio features (P5, P6, P8)")
 
@@ -239,25 +210,6 @@ async def process_voice_chat(
     temperature: float = Form(0.7, description="Sampling temperature"),
     language: Optional[str] = Form(None, description="Language code (e.g., 'en', 'es') - Leave empty for auto-detection", example="en")
 ) -> VoiceResponse:
-    """
-    Process voice chat message with local Whisper transcription.
-
-    **Flow:**
-    1. **Whisper** → Transcribe audio to text (local, free)
-    2. **spaCy + NLP** → Analyze intent, emotion, greeting detection
-    3. **Prompt Builder** → Build context-aware prompts
-    4. **LLaMA** → Generate empathetic text response
-    5. **Return** → Text response with transcription
-
-    **Supported formats:** wav, mp3, m4a, ogg, flac
-
-    **Example:**
-    ```bash
-    curl -X POST "http://localhost:8080/chat/voice" \\
-      -F "user_id=user_001" \\
-      -F "file=@my_audio.wav"
-    ```
-    """
     try:
         if not file.filename:
             raise HTTPException(status_code=400, detail="No file provided")
@@ -268,38 +220,35 @@ async def process_voice_chat(
         import os
         from pathlib import Path
 
-        # Get file extension for proper handling
         file_ext = Path(file.filename).suffix or ".wav"
 
-        # Log file size for debugging
+        # Log incoming file size
         file.file.seek(0, 2)
         file_size = file.file.tell()
         file.file.seek(0)
         logger.info(f"Processing voice message... Size: {file_size} bytes")
 
-        # Save uploaded file temporarily
+        # Save uploaded audio to temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_audio:
             content = await file.read()
             temp_audio.write(content)
             temp_audio_path = temp_audio.name
 
         try:
-            # Step 0: Extract audio features for P5, P6, P8 (pause, tremor, speech rate)
-            logger.info("[AUDIO] Step 0: Extracting audio features (P5, P6, P8)...")
+            # Extract P5 P6 P8 audio features first
+            logger.info("[AUDIO] Extracting audio features (P5, P6, P8)...")
             audio_features = None
             try:
                 audio_features = audio_processor.extract_features_from_file(temp_audio_path)
                 logger.info(f"[SUCCESS] Audio features: {audio_features}")
             except Exception as e:
                 logger.warning(f"Audio feature extraction failed (non-critical): {str(e)}")
-                # If audio processing fails, use None - detection will use text-only
 
-            # Step 1: Transcribe audio using local Whisper
-            logger.info("[TRANSCRIBE] Step 1: Transcribing audio with Whisper...")
+            # Whisper transcribes audio to text
+            logger.info("[TRANSCRIBE] Transcribing audio with Whisper...")
             whisper_service = get_whisper_service()
 
-            # Sanitize language parameter - Swagger sends "string" as placeholder
-            # Only pass language if it's a valid 2-letter code, otherwise let Whisper auto-detect
+            # Swagger sends "string" placeholder — only pass real 2-letter codes
             valid_language = None
             if language and language.lower() != "string" and len(language) == 2:
                 valid_language = language.lower()
@@ -318,9 +267,8 @@ async def process_voice_chat(
                     detail="Could not transcribe audio. Please ensure clear speech."
                 )
 
-            # Step 2-4: NLP analysis + Prompt building + LLaMA response
-            # (This happens automatically inside the chatbot service)
-            logger.info("[GENERATE] Step 2-4: NLP analysis -> Prompt building -> LLaMA generation...")
+            # Generate response via LLaMA from transcribed text
+            logger.info("[GENERATE] NLP analysis -> Prompt building -> LLaMA generation...")
             chatbot = get_chatbot()
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
@@ -335,7 +283,7 @@ async def process_voice_chat(
                 )
             )
 
-            # Add transcription info to metadata
+            # Attach transcription metadata to response
             if result.get("metadata"):
                 result["metadata"]["transcription"] = {
                     "text": transcribed_text,
@@ -346,7 +294,7 @@ async def process_voice_chat(
 
             logger.info(f"[SUCCESS] Response generated: '{result['response'][:50]}...'")
 
-            # ==================== AUTOMATIC 12-PARAMETER DETECTION ====================
+            # Score 12 parameters and save to DB
             detection_result = None
             try:
                 timestamp = datetime.now()
@@ -356,7 +304,7 @@ async def process_voice_chat(
 
                 db = Database.db
 
-                # Get or create detection session
+                # Get or create detection session for this window
                 session = await DetectionSessionDB.get_or_create_session(
                     db=db,
                     session_id=detection_session_id,
@@ -367,15 +315,13 @@ async def process_voice_chat(
                     timestamp=timestamp
                 )
 
-                # Only run detection if session is active
                 if session.get("status") == "active":
-                    # Append message to session
+                    # Append transcribed message with audio features
                     message_data = {
                         "timestamp": timestamp,
                         "text": transcribed_text,
                         "audio_features": audio_features
                     }
-
                     await DetectionSessionDB.append_message_to_session(
                         db=db,
                         session_id=detection_session_id,
@@ -384,11 +330,11 @@ async def process_voice_chat(
                         timestamp=timestamp
                     )
 
-                    # Get conversation context
+                    # Reload to get full conversation context
                     session = await DetectionSessionDB.get_session_by_id(db, detection_session_id)
                     conversation_context = session.get("conversation_context", [])
 
-                    # Run 12-parameter detection (with audio features!)
+                    # Score all 12 parameters including audio features
                     analysis_result = scoring_engine.analyze_session(
                         text=transcribed_text,
                         audio_features=audio_features,
@@ -399,7 +345,7 @@ async def process_voice_chat(
                     scores = analysis_result["scores"]
                     session_raw_score = analysis_result["session_raw_score"]
 
-                    # Update session with new scores
+                    # Save updated scores to session document
                     update_data = {
                         "p1_semantic_incoherence": scores["p1_semantic_incoherence"],
                         "p2_repeated_questions": scores["p2_repeated_questions"],
@@ -415,10 +361,8 @@ async def process_voice_chat(
                         "p12_topic_maintenance": scores["p12_topic_maintenance"],
                         "session_raw_score": session_raw_score
                     }
-
                     await DetectionSessionDB.update_session(db, detection_session_id, update_data)
 
-                    # Prepare detection result for response
                     detection_result = {
                         "detection_session_id": detection_session_id,
                         "time_window": time_window,
@@ -434,15 +378,11 @@ async def process_voice_chat(
 
             except Exception as e:
                 logger.warning(f"Detection failed (non-critical): {str(e)}")
-                # Detection failure doesn't break the chat
 
-            # ==================== END DETECTION ====================
-
-            # Add detection and audio features to result
             result["detection"] = detection_result
             result["audio_features"] = audio_features
 
-            # ==================== CRISIS DETECTION ====================
+            # Check for crisis keywords in transcribed text
             try:
                 is_crisis, matched_phrase = detect_crisis(transcribed_text)
                 if is_crisis:
@@ -455,7 +395,6 @@ async def process_voice_chat(
                     result["safety_warnings"] = (result.get("safety_warnings") or []) + ["crisis_detected"]
             except Exception as e:
                 logger.error(f"Crisis detection error (non-critical): {e}")
-            # ==================== END CRISIS DETECTION ====================
 
             return VoiceResponse(
                 **result,
@@ -463,10 +402,9 @@ async def process_voice_chat(
             )
 
         finally:
-            # Clean up temp file
+            # Clean up temp audio file
             if os.path.exists(temp_audio_path):
                 os.unlink(temp_audio_path)
-                logger.debug(f"Cleaned up temp file: {temp_audio_path}")
 
     except HTTPException:
         raise
@@ -482,11 +420,6 @@ async def process_voice_chat(
             summary="Get Session History",
             description="Retrieve conversation history for a session")
 async def get_session_history(session_id: str) -> Dict[str, Any]:
-    """
-    Get conversation history for a specific session.
-
-    Returns all messages exchanged in the session.
-    """
     try:
         chatbot = get_chatbot()
         history = chatbot.get_session_history(session_id)
@@ -497,7 +430,7 @@ async def get_session_history(session_id: str) -> Dict[str, Any]:
                 detail=f"Session {session_id} not found"
             )
 
-        # Format history into user/assistant pairs
+        # Pair messages into user/assistant exchanges
         messages = []
         for i in range(0, len(history), 2):
             if i + 1 < len(history):
@@ -524,14 +457,6 @@ async def get_session_history(session_id: str) -> Dict[str, Any]:
                summary="Clear Session",
                description="Delete conversation history for a session")
 async def clear_session(session_id: str) -> Dict[str, str]:
-    """
-    Clear conversation history for a specific session.
-
-    Useful for:
-    - Starting fresh conversations
-    - Privacy/data management
-    - Testing
-    """
     try:
         chatbot = get_chatbot()
         success = chatbot.clear_session(session_id)
@@ -558,14 +483,8 @@ async def clear_session(session_id: str) -> Dict[str, str]:
             summary="Chatbot Health Check",
             description="Check if chatbot model is loaded and ready")
 async def chatbot_health() -> Dict[str, Any]:
-    """
-    Health check endpoint for chatbot service.
-
-    Returns model status and configuration.
-    """
     try:
         chatbot = get_chatbot()
-
         return {
             "status": "healthy",
             "model_loaded": chatbot.model is not None,
@@ -575,7 +494,6 @@ async def chatbot_health() -> Dict[str, Any]:
             "lora_adapter": str(chatbot.lora_adapter_path),
             "active_sessions": len(chatbot.conversation_history)
         }
-
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         return {
@@ -584,31 +502,12 @@ async def chatbot_health() -> Dict[str, Any]:
         }
 
 
-# ==================== DETECTION & ANALYTICS ENDPOINTS ====================
-
 @router.get("/weekly-risk",
             summary="Get Weekly Risk",
             description="Calculate weekly dementia risk for a user")
 async def get_weekly_risk(user_id: str, week_start: str) -> Dict[str, Any]:
-    """
-    Calculate weekly dementia risk for a user.
-
-    Process:
-    1. Retrieve all sessions for the week
-    2. Calculate weekly average score
-    3. Normalize to 0-100
-    4. Apply trend vs previous week
-    5. Calculate final risk (0-100)
-
-    Query Parameters:
-        user_id: User ID
-        week_start: Week start date (YYYY-MM-DD format)
-
-    Returns:
-        Weekly risk metrics with breakdown
-    """
     try:
-        # Parse week start date
+        # Parse week start date string
         try:
             week_start_dt = datetime.strptime(week_start, "%Y-%m-%d")
         except ValueError:
@@ -617,7 +516,6 @@ async def get_weekly_risk(user_id: str, week_start: str) -> Dict[str, Any]:
                 detail="Invalid date format. Use YYYY-MM-DD"
             )
 
-        # Calculate weekly risk
         db = Database.db
         risk_result = await risk_calculator.calculate_weekly_risk(
             db=db,
@@ -625,7 +523,6 @@ async def get_weekly_risk(user_id: str, week_start: str) -> Dict[str, Any]:
             week_start=week_start_dt
         )
 
-        # Check if error (no sessions)
         if "error" in risk_result:
             raise HTTPException(
                 status_code=404,
@@ -657,15 +554,6 @@ async def get_weekly_risk(user_id: str, week_start: str) -> Dict[str, Any]:
             summary="Get Detection Session",
             description="Retrieve a specific detection session by ID")
 async def get_detection_session(session_id: str) -> Dict[str, Any]:
-    """
-    Retrieve a specific detection session by ID.
-
-    Args:
-        session_id: Unique session identifier
-
-    Returns:
-        Session data with all 12 parameters
-    """
     try:
         db = Database.db
         session = await DetectionSessionDB.get_session_by_id(db, session_id)
@@ -676,7 +564,7 @@ async def get_detection_session(session_id: str) -> Dict[str, Any]:
                 detail=f"Session not found: {session_id}"
             )
 
-        # Remove MongoDB _id field
+        # Convert MongoDB ObjectId to string
         if "_id" in session:
             session["_id"] = str(session["_id"])
 
@@ -703,19 +591,8 @@ async def get_user_detection_sessions(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None
 ) -> Dict[str, Any]:
-    """
-    Retrieve all detection sessions for a user (optionally filtered by date range).
-
-    Query Parameters:
-        user_id: User ID
-        start_date: Optional start date (YYYY-MM-DD)
-        end_date: Optional end date (YYYY-MM-DD)
-
-    Returns:
-        List of sessions
-    """
     try:
-        # Parse dates if provided
+        # Parse optional date range filters
         start_dt = None
         end_dt = None
 
@@ -737,7 +614,6 @@ async def get_user_detection_sessions(
                     detail="Invalid end_date format. Use YYYY-MM-DD"
                 )
 
-        # Retrieve sessions
         db = Database.db
         sessions = await DetectionSessionDB.get_sessions_by_user(
             db=db,
@@ -746,7 +622,7 @@ async def get_user_detection_sessions(
             end_date=end_dt
         )
 
-        # Clean MongoDB _id fields
+        # Stringify MongoDB ObjectIds
         for session in sessions:
             if "_id" in session:
                 session["_id"] = str(session["_id"])
@@ -774,20 +650,11 @@ async def get_user_detection_sessions(
             summary="Get Active Detection Sessions",
             description="Get all active (non-finalized) detection sessions")
 async def get_active_detection_sessions(user_id: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Get all active (non-finalized) detection sessions.
-
-    Query Parameters:
-        user_id: Optional user ID filter
-
-    Returns:
-        List of active sessions
-    """
     try:
         db = Database.db
         collection = db["chat_detection_sessions"]
 
-        # Build query
+        # Filter active sessions, optionally by user
         query = {"status": "active"}
         if user_id:
             query["user_id"] = user_id
@@ -795,7 +662,6 @@ async def get_active_detection_sessions(user_id: Optional[str] = None) -> Dict[s
         cursor = collection.find(query).sort("last_message_at", -1)
         sessions = await cursor.to_list(length=None)
 
-        # Clean MongoDB _id fields
         for session in sessions:
             if "_id" in session:
                 session["_id"] = str(session["_id"])
@@ -820,21 +686,8 @@ async def get_active_detection_sessions(user_id: Optional[str] = None) -> Dict[s
              summary="Manually Finalize Session",
              description="Force finalization of a specific session")
 async def manually_finalize_session(session_id: str) -> Dict[str, Any]:
-    """
-    Manually finalize a specific detection session.
-
-    Use this to force finalization before time window ends.
-
-    Args:
-        session_id: Session ID to finalize
-
-    Returns:
-        Finalized session data
-    """
     try:
         db = Database.db
-
-        # Get session
         session = await DetectionSessionDB.get_session_by_id(db, session_id)
 
         if not session:
@@ -843,14 +696,12 @@ async def manually_finalize_session(session_id: str) -> Dict[str, Any]:
                 detail=f"Session not found: {session_id}"
             )
 
-        # Check if already finalized
         if session.get("status") == "finalized":
             raise HTTPException(
                 status_code=400,
                 detail="Session already finalized"
             )
 
-        # Finalize session
         success = await session_finalizer.finalize_session_with_scores(db, session)
 
         if not success:
@@ -859,7 +710,6 @@ async def manually_finalize_session(session_id: str) -> Dict[str, Any]:
                 detail="Failed to finalize session"
             )
 
-        # Get updated session
         updated_session = await DetectionSessionDB.get_session_by_id(db, session_id)
 
         if "_id" in updated_session:
@@ -887,26 +737,14 @@ async def manually_finalize_session(session_id: str) -> Dict[str, Any]:
              summary="Run Finalization Check",
              description="Manually trigger finalization check for all active sessions")
 async def run_finalization_check() -> Dict[str, Any]:
-    """
-    Manually trigger finalization check for all active sessions.
-
-    This runs the same logic as the background job.
-    Useful for testing or immediate finalization.
-
-    Returns:
-        Summary of finalization check
-    """
     try:
         logger.info("Manual finalization check triggered")
-
         await session_finalizer.run_finalization_check()
-
         return {
             "success": True,
             "message": "Finalization check completed",
             "timestamp": datetime.now()
         }
-
     except Exception as e:
         logger.error(f"Finalization check failed: {e}")
         raise HTTPException(
@@ -915,13 +753,10 @@ async def run_finalization_check() -> Dict[str, Any]:
         )
 
 
-# ==================== CRISIS ALERT ENDPOINTS ====================
-
 @router.get("/crisis-alerts/{user_id}",
             summary="Get Crisis Alerts",
             description="Get unacknowledged crisis alerts for a patient")
 async def get_crisis_alerts(user_id: str) -> Dict[str, Any]:
-    """Retrieve all unacknowledged crisis alerts for a patient."""
     try:
         db = Database.db
         collection = db["crisis_alerts"]
@@ -941,7 +776,6 @@ async def get_crisis_alerts(user_id: str) -> Dict[str, Any]:
               summary="Acknowledge Crisis Alert",
               description="Mark a crisis alert as acknowledged by caregiver")
 async def acknowledge_crisis_alert(alert_id: str) -> Dict[str, Any]:
-    """Mark a crisis alert as acknowledged."""
     try:
         from bson import ObjectId
         db = Database.db
@@ -960,12 +794,10 @@ async def acknowledge_crisis_alert(alert_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ==================== HELPER FUNCTIONS ====================
-
 async def _handle_crisis_alert(db, user_id: str, message_text: str, matched_phrase: str):
-    """Save crisis alert to MongoDB and push WebSocket notification to caregiver."""
+    # Save crisis alert and push WebSocket to caregiver
     try:
-        # Look up caregiver linked to this user
+        # Look up caregiver linked to this patient
         user_doc = await db["users"].find_one({"user_id": user_id})
         caregiver_id = user_doc.get("caregiver_id") if user_doc else None
 
@@ -979,7 +811,7 @@ async def _handle_crisis_alert(db, user_id: str, message_text: str, matched_phra
             "acknowledged_at": None,
         }
 
-        # Persist to MongoDB
+        # Persist alert to MongoDB
         collection = db["crisis_alerts"]
         result = await collection.insert_one(alert)
         alert_id = str(result.inserted_id)
@@ -989,7 +821,7 @@ async def _handle_crisis_alert(db, user_id: str, message_text: str, matched_phra
             f"phrase='{matched_phrase}', alert_id={alert_id}"
         )
 
-        # Push real-time WebSocket alert to caregiver if connected
+        # Push real-time alert via WebSocket if caregiver connected
         if caregiver_id:
             try:
                 from src.routes.websocket_routes import realtime_engine
@@ -1013,7 +845,7 @@ async def _handle_crisis_alert(db, user_id: str, message_text: str, matched_phra
 
 
 def _get_risk_interpretation(risk_level: str) -> Dict[str, Any]:
-    """Get interpretation and recommendations for risk level"""
+    # Map risk level to description and recommendations
     interpretations = {
         "Normal": {
             "description": "Low risk of dementia indicators",
