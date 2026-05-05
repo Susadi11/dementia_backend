@@ -1,15 +1,10 @@
 # src/parsers/game_schemas.py
-"""
-Pydantic schemas for game API request/response validation
-"""
 from datetime import datetime
 from typing import List, Optional, Dict
 from pydantic import BaseModel, Field, model_validator, field_validator, ConfigDict
 from pydantic.alias_generators import to_camel
 
-# ============================================================================
 # Request Schemas
-# ============================================================================
 
 class GameTrial(BaseModel):
     """Single trial data from a game session"""
@@ -39,12 +34,7 @@ class GameSummary(BaseModel):
     medianRtRaw: Optional[float] = Field(None, gt=0)
 
 class GameSessionRequest(BaseModel):
-    """
-    Request body for POST /game/session
-    Client can send either:
-    - trials (preferred, more accurate)
-    - summary (fallback, less precise)
-    """
+        """Request body for submitting a game session"""
     userId: str = Field(..., min_length=1)
     caregiverId: Optional[str] = Field(None, description="Caregiver ID assigned to this user. If omitted, looked up automatically from the database.")
     sessionId: str = Field(..., min_length=1)
@@ -80,9 +70,7 @@ class CalibrationRequest(BaseModel):
             raise ValueError("All tap times must be positive")
         return v
 
-# ============================================================================
 # Response Schemas
-# ============================================================================
 
 class FeaturesResponse(BaseModel):
     """Session features (SAC, IES, etc.)"""
@@ -116,9 +104,7 @@ class CalibrationResponse(BaseModel):
     calibrationDate: str
     message: str = "Motor baseline calibrated successfully"
 
-# ============================================================================
 # History/Dashboard Schemas
-# ============================================================================
 
 class SessionHistoryItem(BaseModel):
     """Single session in history"""
