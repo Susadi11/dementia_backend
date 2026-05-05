@@ -14,7 +14,8 @@ from .mmse_ml_service import transcribe_audio
 
 def _convert_to_wav(input_path: str, sr: int = 16000) -> str:
     """
-    Convert any input audio format to mono 16kHz wav using ffmpeg.
+    use FFmpeg to standardize all audio inputs by converting them into mono 
+    16kHz WAV format. This ensures consistency before feature extraction.”
     """
     out_path = f"{input_path}_{uuid.uuid4().hex}.wav"
 
@@ -32,12 +33,24 @@ def _convert_to_wav(input_path: str, sr: int = 16000) -> str:
 
 
 def _extract_audio_features(path: str, sr_target: int = 16000) -> np.ndarray:
+        """
+    Extract audio features using Librosa
+    (MFCC, delta, chroma, spectral contrast, tonnetz)
+    """
+
+     # Load audio and convert to mono 16kHz
     y, sr = librosa.load(path, sr=sr_target, mono=True)
+
+     # Normalize audio signal (remove amplitude variations)
     y = librosa.util.normalize(y)
 
+    # Ensure audio is long enough
     if len(y) < sr:
         raise HTTPException(status_code=400, detail="Audio too short – record at least 1 second")
 
+    # -----------------------------
+    # Feature Extraction
+    # -----------------------------
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
     mfcc_delta = librosa.feature.delta(mfcc)
     mfcc_delta2 = librosa.feature.delta(mfcc, order=2)
@@ -48,6 +61,16 @@ def _extract_audio_features(path: str, sr_target: int = 16000) -> np.ndarray:
         y=librosa.effects.harmonic(y), sr=sr
     )
 
+    # -----------------------------
+    # Feature Vector Creation
+    
+    # -----------------------------
+    """
+    We combine all extracted features into a single feature vector by computing
+    statistical values like mean and standard deviation. This creates a fixed-length 
+    input for the machine learning model.””
+    """
+    # Combine all features into one vector (77 features total)
     features = np.hstack([
         mfcc.mean(axis=1),
         mfcc.std(axis=1),

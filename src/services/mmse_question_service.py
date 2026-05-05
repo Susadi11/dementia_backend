@@ -20,7 +20,7 @@ def process_mmse_question(
     if caregiver_is_correct is not None:
         correctness = {"answer": caregiver_is_correct}
 
-    # CASE 2 — Backend hardcoded correctness
+    # CASE 2 — Backend correctness
     else:
         correctness = check_hardcoded_correctness(
             question_type, transcript
